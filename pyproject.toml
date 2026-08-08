@@ -1,0 +1,39 @@
+[project]
+name = "cbc-estimating-workspace"
+version = "0.1.0"
+description = "CBC Commercial Estimating & Pricing Workspace with unified MCP servers and Agent Sandbox"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.0.0",
+    "pymupdf>=1.24",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "pytest>=8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pyright]
+extraPaths = [
+    ".agent/mcp/building-plan-intelligence",
+    ".agent/mcp/catalog-intelligence",
+    ".agent/mcp/cbc-estimating-engine",
+]
+venvPath = "."
+venv = ".venv"
+
+[tool.pyrefly]
+extraPaths = [
+    ".agent/mcp/building-plan-intelligence",
+    ".agent/mcp/catalog-intelligence",
+    ".agent/mcp/cbc-estimating-engine",
+]
+

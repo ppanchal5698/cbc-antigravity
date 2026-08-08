@@ -1,0 +1,72 @@
+{
+  "project_name": "Baldwin PA Revision 4",
+  "plan_pdf_path": "plans/Full Set 25-073 Baldwin PA Revision 4 set 4-14-26.pdf",
+  "plan_doc_id": "51d90d3aff019e82",
+  "phase_completed": 6,
+  "mode": "one-off",
+  "client_account": "Standard Commercial",
+  "initiator": "Estimator",
+  "bid_due_date": null,
+  "alternates_noted": [],
+  "project_state": "PA",
+  "sales_tax_rate": 0.0,
+  "disciplines_present": [
+    "General (pages 1-7)",
+    "Structural (pages 8-50)",
+    "Civil (page 17)",
+    "Architectural (pages 18-47)",
+    "Mechanical (pages 51-56)",
+    "Plumbing (pages 57-62)",
+    "Electrical (pages 63-83)",
+    "Unknown / outlined title block (pages 74-87)"
+  ],
+  "disciplines_note": "Ranges are first-to-last page per discipline and overlap where sheets interleave; they are not contiguous blocks. Re-run plan_overview for the authoritative list.",
+  "extracted_schedules": {
+    "door_schedule": [
+      {"tag": "01", "room": "DINING", "type": "A", "size": "3'-0\" x 7'-0\"", "material": "AL/AL", "ext_sale": 0.0},
+      {"tag": "02", "room": "DINING", "type": "B", "size": "6'-0\" x 7'-0\"", "material": "AL/AL", "ext_sale": 0.0},
+      {"tag": "03", "room": "WASHING", "type": "C", "size": "3'-6\" x 7'-0\"", "material": "HM/HM", "ext_sale": 672.16},
+      {"tag": "04", "room": "MEN", "type": "D", "size": "3'-0\" x 7'-0\"", "material": "WD/HM", "ext_sale": 416.67},
+      {"tag": "05", "room": "WOMEN", "type": "D", "size": "3'-0\" x 7'-0\"", "material": "WD/HM", "ext_sale": 461.58},
+      {"tag": "06", "room": "OFFICE", "type": "E", "size": "3'-0\" x 7'-0\"", "material": "WD/HM", "ext_sale": 404.97}
+    ],
+    "hardware_sets": {},
+    "accessories": [
+      {"tag": "B-262", "desc": "Paper Towel Dispenser", "qty": 2, "ext_sale": 162.28},
+      {"tag": "B-241", "desc": "Soap Dispenser Wall Mount", "qty": 2, "ext_sale": 111.36},
+      {"tag": "B-251", "desc": "Sanitizer Dispenser Wall Mount", "qty": 2, "ext_sale": 111.36}
+    ],
+    "frp_takeoff": {
+      "sheets_4x10": 50,
+      "division_bars": 49,
+      "inside_corners": 12,
+      "outside_corners": 6,
+      "end_caps": 36,
+      "adhesive_pails": 7,
+      "frp_subtotal": 4395.93,
+      "provisional": true
+    }
+  },
+  "unresolved_rfis": [
+    "Fire rating convention for opening 03 (WASHING)",
+    "FRP conversion constants confirmation (Open Item 5)",
+    "Hager adder values for premium finishes & electrification (NR-7)"
+  ],
+  "pending_vendor_rfqs": [
+    "Storefront material & glazing package (by GC / LockNet)",
+    "Yale Lockset wholesaler net confirmation"
+  ],
+  "pricing_summary": {
+    "doors_subtotal": 1955.38,
+    "accessories_subtotal": 385.00,
+    "frp_subtotal": 4395.93,
+    "base_bid_subtotal": 6736.31,
+    "freight": "TBD - excluded at estimate stage",
+    "sales_tax": 0.0,
+    "grand_total": 6736.31
+  },
+  "last_updated": "2026-08-07T15:47:00Z",
+  "_next": "Completed Phase 6 - Draft Proposal Delivered for Estimator Review."
+}
+}
+}

@@ -1,0 +1,295 @@
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  Swiss International Style, tabular reading.
+  Black, white, and one signal colour. Structure comes from hairlines on a 4px
+  baseline, never from boxes: no radius, no shadows, no gradients.
+*/
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--primary-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-paper: var(--paper);
+  --color-sunken: var(--paper-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-signal: var(--signal);
+  --color-signal-wash: var(--signal-wash);
+  --color-alert: var(--alert);
+  --color-alert-wash: var(--alert-wash);
+
+  --font-sans: var(--font-archivo);
+  --font-mono: var(--font-plex-mono);
+  --font-heading: var(--font-archivo);
+
+  /* Rules, not boxes. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+}
+
+:root {
+  --paper: #ffffff;
+  --paper-sunken: #f4f4f4;
+  --ink: #0a0a0a;
+  --ink-muted: #6b6b6b;
+  --rule: #e3e3e3;
+  --rule-strong: #c4c4c4;
+  /* The one colour. Same navy as the title block of the exported .xlsx. */
+  --signal: #1a365d;
+  --signal-wash: #eef2f7;
+  /* Failure only. Never decoration. */
+  --alert: #c8102e;
+  --alert-wash: #fdeef0;
+
+  --radius: 0px;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-sunken);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--paper-sunken);
+  --accent-foreground: var(--ink);
+  --destructive: var(--alert);
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--signal);
+}
+
+.dark {
+  --paper: #0a0a0a;
+  --paper-sunken: #151515;
+  --ink: #f2f2f2;
+  --ink-muted: #8c8c8c;
+  --rule: #262626;
+  --rule-strong: #3d3d3d;
+  --signal: #7fa8d9;
+  --signal-wash: #14202e;
+  --alert: #ff6b6b;
+  --alert-wash: #2a1416;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    /* Prices that do not align are the fastest way to look amateur. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  ::selection {
+    background: var(--signal);
+    color: var(--paper);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 1px;
+  }
+
+  /* Numerals in headings and figures are lining, never old-style. */
+  h1, h2, h3, h4 {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ---- type roles -------------------------------------------------------
+     Archivo is variable on width (62-125) as well as weight. Condensed
+     widths carry dense data labels; normal width carries prose. One family,
+     two jobs, no second typeface. */
+
+  .t-eyebrow {
+    font-stretch: 80%;
+    @apply text-[11px] leading-none font-semibold tracking-[0.14em] text-ink-muted uppercase;
+  }
+
+  .t-label {
+    font-stretch: 84%;
+    @apply text-[11px] leading-none font-semibold tracking-[0.08em] text-ink-muted uppercase;
+  }
+
+  .t-display {
+    @apply text-5xl leading-[0.92] font-semibold tracking-[-0.03em];
+  }
+
+  .t-figure {
+    @apply font-sans text-4xl leading-none font-semibold tracking-[-0.02em];
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .t-mono {
+    @apply font-mono text-[12px] leading-tight;
+  }
+
+  /* ---- ledger table -----------------------------------------------------
+     Hairline rules only. Header is a ruled band, not a filled box. */
+
+  .ledger {
+    @apply w-full border-collapse text-[13px];
+  }
+  .ledger thead th {
+    font-stretch: 84%;
+    @apply border-rule border-b py-2 pr-4 text-left text-[11px] font-semibold tracking-[0.08em] text-ink-muted uppercase whitespace-nowrap;
+  }
+  .ledger tbody td {
+    @apply border-rule/70 border-b py-2 pr-4 align-top;
+  }
+  .ledger tbody tr:hover {
+    background: var(--paper-sunken);
+  }
+  .ledger .num {
+    @apply text-right font-mono text-[12px] tabular-nums;
+  }
+  .ledger .code {
+    @apply font-mono text-[12px] whitespace-nowrap;
+  }
+
+  /* Wide tables scroll inside themselves; the page never scrolls sideways. */
+  .scroll-x {
+    @apply -mx-1 overflow-x-auto px-1;
+    scrollbar-width: thin;
+  }
+
+  /* ---- markdown ---------------------------------------------------------
+     Hand-rolled instead of the typography plugin: this is the whole surface
+     the copilot's output actually uses. */
+
+  .prose-cbc {
+    @apply text-[14px] leading-[1.65];
+  }
+  .prose-cbc > :first-child { @apply mt-0; }
+  .prose-cbc > :last-child { @apply mb-0; }
+  .prose-cbc p { @apply my-3; }
+  .prose-cbc h1 { @apply mt-6 mb-2 text-xl font-semibold tracking-[-0.02em]; }
+  .prose-cbc h2 { @apply mt-6 mb-2 text-base font-semibold tracking-[-0.01em]; }
+  .prose-cbc h3,
+  .prose-cbc h4 {
+    font-stretch: 88%;
+    @apply mt-4 mb-1 text-[13px] font-semibold tracking-[0.04em] uppercase;
+  }
+  .prose-cbc ul { @apply my-3 list-disc space-y-1 pl-5; }
+  .prose-cbc ol { @apply my-3 list-decimal space-y-1 pl-5; }
+  .prose-cbc li::marker { @apply text-ink-muted; }
+  .prose-cbc li > input[type="checkbox"] { @apply mr-1 align-middle; }
+  .prose-cbc a { @apply text-signal underline underline-offset-2; }
+  .prose-cbc blockquote {
+    @apply border-rule-strong text-ink-muted my-3 border-l-2 pl-3;
+  }
+  .prose-cbc hr { @apply border-rule my-6; }
+  .prose-cbc code {
+    @apply bg-sunken font-mono text-[0.86em];
+    padding: 0.05em 0.3em;
+  }
+  .prose-cbc pre {
+    @apply border-rule bg-sunken my-3 overflow-x-auto border p-3 text-[12px] leading-relaxed;
+  }
+  .prose-cbc pre code { @apply bg-transparent p-0 text-[1em]; }
+
+  .prose-cbc table { @apply my-3 w-full border-collapse text-[12px]; }
+  .prose-cbc thead th {
+    font-stretch: 84%;
+    @apply border-rule border-b py-1.5 pr-4 text-left text-[11px] font-semibold tracking-[0.08em] text-ink-muted uppercase;
+  }
+  .prose-cbc tbody td { @apply border-rule/70 border-b py-1.5 pr-4 align-top; }
+  .prose-cbc table :is(td, th):last-child { @apply pr-0; }
+
+  /* Syntax highlighting: two inks, no rainbow. */
+  .prose-cbc .hljs-comment,
+  .prose-cbc .hljs-quote { @apply text-ink-muted italic; }
+  .prose-cbc .hljs-keyword,
+  .prose-cbc .hljs-selector-tag,
+  .prose-cbc .hljs-literal,
+  .prose-cbc .hljs-section,
+  .prose-cbc .hljs-type,
+  .prose-cbc .hljs-name,
+  .prose-cbc .hljs-strong { @apply text-signal font-semibold; }
+  .prose-cbc .hljs-string,
+  .prose-cbc .hljs-title,
+  .prose-cbc .hljs-attr,
+  .prose-cbc .hljs-symbol,
+  .prose-cbc .hljs-bullet,
+  .prose-cbc .hljs-addition { @apply text-signal; }
+  .prose-cbc .hljs-number,
+  .prose-cbc .hljs-meta,
+  .prose-cbc .hljs-built_in,
+  .prose-cbc .hljs-variable,
+  .prose-cbc .hljs-deletion { @apply text-ink-muted; }
+}
+
+@layer components {
+  /* Grounding chips: the workflow's audit tags, rendered as the citations they
+     are. A resolvable tag links; a gap tag states plainly what is missing. */
+  .cbc-cite {
+    @apply border-rule bg-sunken text-ink-muted mx-0.5 inline-flex items-baseline gap-1
+           border px-1.5 py-px align-baseline font-mono text-[11px] leading-[1.5] no-underline;
+  }
+  a.cbc-cite {
+    @apply border-signal/35 text-signal transition-colors;
+  }
+  a.cbc-cite:hover {
+    @apply border-signal bg-signal text-paper;
+  }
+  .cbc-cite[data-gap='true'] {
+    @apply border-alert/35 text-alert bg-transparent;
+  }
+  .cbc-cite::before {
+    content: '';
+    @apply bg-current mr-0.5 inline-block size-1 self-center opacity-50;
+  }
+}

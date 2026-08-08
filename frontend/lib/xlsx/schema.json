@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CBCQuotation",
+  "description": "Structured result of a CBC Phase 0-6 estimate. Every line must carry a cost source and a plan/catalog citation; the audit gate rejects lines that do not.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectName",
+    "planSet",
+    "clientAccount",
+    "address",
+    "quoteDate",
+    "projectState",
+    "doorLines",
+    "accessoryLines",
+    "frpLines",
+    "salesTaxLabel",
+    "salesTaxAmount",
+    "terms",
+    "rfis"
+  ],
+  "properties": {
+    "projectName": { "type": "string" },
+    "planSet": { "type": "string", "description": "Filename of the bid set this estimate was read from." },
+    "clientAccount": { "type": "string" },
+    "address": { "type": "string" },
+    "quoteDate": { "type": "string" },
+    "projectState": {
+      "type": "string",
+      "description": "e.g. \"PA (0.0% Sales Tax - Supply-Only)\". Tax: OH ~8%, KY 6.5%, all other states and Canada 0%."
+    },
+    "statusLine": { "type": "string", "default": "DRAFT — For CBC Estimator Review" },
+    "phoneFax": { "type": "string" },
+    "doorLines": {
+      "type": "array",
+      "description": "Division 08 openings, grouped by door tag.",
+      "items": { "$ref": "#/$defs/line" }
+    },
+    "accessoryLines": {
+      "type": "array",
+      "description": "Division 10 washroom accessories and hand dryers. Uncarried items appear here with costBasis \"[not carried on shelf — outside RFQ required]\" and no vendor named.",
+      "items": { "$ref": "#/$defs/line" }
+    },
+    "frpLines": {
+      "type": "array",
+      "description": "Division 06 64 FRP panels, trims and adhesive. Provisional per Open Item 5.",
+      "items": { "$ref": "#/$defs/line" }
+    },
+    "salesTaxLabel": { "type": "string", "description": "e.g. \"Pennsylvania Sales Tax (0.0%):\"" },
+    "salesTaxAmount": { "type": "number" },
+    "freightNote": { "type": "string", "default": "TBD (Excluded)" },
+    "terms": { "type": "array", "items": { "type": "string" } },
+    "rfis": {
+      "type": "array",
+      "description": "The RFI register: every substitution, provisional constant and unconfirmed item.",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "room", "description", "qty", "unit", "unitSale", "costBasis", "citations"],
+      "properties": {
+        "tag": { "type": "string", "description": "Opening tag or item mark, exactly as it appears on the schedule." },
+        "room": { "type": "string" },
+        "description": { "type": "string" },
+        "qty": { "type": "number" },
+        "unit": { "type": "string", "description": "EA, SHT, STK, PAIL, LF" },
+        "unitSale": { "type": "number", "description": "Sale $ EA = Cost / (1 - Margin). Never a list price." },
+        "costBasis": {
+          "type": "string",
+          "description": "cost_source plus cost_source_detail, e.g. \"catalog_list_x_multiplier (Hager .29)\". One of: catalog_list_x_multiplier, p21_last_po, manual_wholesaler_net, vendor_rfq, custom_fabricator, not_specified."
+        },
+        "citations": {
+          "type": "string",
+          "description": "Audit trail tags: [schedule] [spec] [note] [drawing] [catalog] [catalog-page] [not carried] [not indexed] [not stated]."
+        }
+      }
+    }
+  }
+}

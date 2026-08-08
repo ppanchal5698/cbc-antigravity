@@ -1,0 +1,14 @@
+{
+  "include": [
+    ".",
+    ".agent/mcp",
+    "sandbox"
+  ],
+  "extraPaths": [
+    ".agent/mcp/building-plan-intelligence",
+    ".agent/mcp/catalog-intelligence",
+    ".agent/mcp/cbc-estimating-engine"
+  ],
+  "venvPath": ".",
+  "venv": ".venv"
+}

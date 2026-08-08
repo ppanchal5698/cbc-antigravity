@@ -1,0 +1,35 @@
+{
+  "$schema": "https://antigravity.google/schemas/mcp_config.json",
+  "//": "PYMUPDF_MESSAGE=fd:2 is load-bearing. The workspace servers `import fitz`, and PyMuPDF prints its deprecation notice to STDOUT, which corrupts the MCP stdio JSON-RPC stream - the server then fails to load with 'connection closed'. Sending pymupdf's messages to stderr keeps stdout clean.",
+  "mcpServers": {
+    "building-plan-intelligence": {
+      "command": "/workspace/.venv/bin/python",
+      "args": ["-m", "bpi.server"],
+      "cwd": "/workspace",
+      "env": {
+        "PYTHONPATH": "/workspace/.agent/mcp/building-plan-intelligence",
+        "BPI_CACHE": "/workspace/.agent/cache/building-plan-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
+      }
+    },
+    "catalog-intelligence": {
+      "command": "/workspace/.venv/bin/python",
+      "args": ["-m", "catint.server"],
+      "cwd": "/workspace",
+      "env": {
+        "PYTHONPATH": "/workspace/.agent/mcp/catalog-intelligence",
+        "CATINT_CACHE": "/workspace/.agent/cache/catalog-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
+      }
+    },
+    "cbc-estimating-engine": {
+      "command": "/workspace/.venv/bin/python",
+      "args": ["-m", "cbc_engine.server"],
+      "cwd": "/workspace",
+      "env": {
+        "PYTHONPATH": "/workspace/.agent/mcp/cbc-estimating-engine",
+        "CBC_WORKSPACE_ROOT": "/workspace"
+      }
+    }
+  }
+}

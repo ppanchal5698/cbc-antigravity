@@ -1,0 +1,39 @@
+# The Antigravity agent service: the gateway (SSE) and the document worker.
+# agy always runs from /workspace, which is the containerised CBC workspace.
+FROM node:24-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl unzip tar rsync git \
+      python3 python3-venv python3-dev build-essential \
+      dbus-x11 gnome-keyring libsecret-1-0 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Antigravity CLI. Installs to ~/.local/bin/agy.
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+# The gateway and worker need runtime deps only - no Next.js, no toolchain.
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY server ./server
+COPY lib ./lib
+COPY types ./types
+COPY docker ./docker
+
+RUN chmod +x /app/docker/entrypoint-agent.sh
+
+ENV WORKSPACE_ROOT=/workspace \
+    SEED_ROOT=/seed \
+    AGY_BIN=agy \
+    AGENT_PORT=8787 \
+    NODE_ENV=production
+
+EXPOSE 8787
+
+ENTRYPOINT ["/app/docker/entrypoint-agent.sh"]
+CMD ["node", "server/index.ts"]

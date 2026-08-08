@@ -1,0 +1,102 @@
+name: cbc-copilot
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cbc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cbc}
+      POSTGRES_DB: ${POSTGRES_DB:-cbc}
+    ports:
+      # 5432 on the host is usually taken by a native PostgreSQL install.
+      - "${DB_HOST_PORT:-5433}:5432"
+    volumes:
+      # PostgreSQL 18+ images want the mount one level up, at
+      # /var/lib/postgresql, so data lands in a version-named subdirectory.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cbc} -d ${POSTGRES_DB:-cbc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The long-lived Antigravity connection: SSE gateway + document worker.
+  # agy is always launched with cwd=/workspace.
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:-cbc}@db:5432/${POSTGRES_DB:-cbc}
+      WORKSPACE_ROOT: /workspace
+      SEED_ROOT: /seed
+      AGY_BIN: agy
+      AGY_MODEL: ${AGY_MODEL:-}
+      AGY_EFFORT: ${AGY_EFFORT:-}
+      AGY_TIMEOUT: ${AGY_TIMEOUT:-30m}
+      AGENT_PORT: 8787
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      KEYRING_PASSWORD: ${KEYRING_PASSWORD:-}
+    volumes:
+      # The host CBC workspace, read-only. Seeds the volume on first boot and is
+      # never written to, so the Antigravity IDE's Windows paths stay intact.
+      - ${CBC_WORKSPACE_HOST:-..}:/seed:ro
+      - workspace:/workspace
+      # agy's OAuth credentials and keyring; survives restarts after one login.
+      - agy-home:/root
+    ports:
+      - "${AGENT_HOST_PORT:-8787}:8787"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:-cbc}@db:5432/${POSTGRES_DB:-cbc}
+      AGENT_URL: http://agent:8787
+      WORKSPACE_ROOT: /workspace
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+    volumes:
+      # Uploads are written straight into the project folder the agent reads.
+      - workspace:/workspace
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
+
+  # Periodic snapshot of the workspace volume. The agent writes into the
+  # workspace, so this is the undo button for a bad run.
+  backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on:
+      - agent
+    environment:
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
+      BACKUP_KEEP: ${BACKUP_KEEP:-24}
+    volumes:
+      - workspace:/workspace:ro
+      - ./backups:/backups
+    # Folded scalar: every line is indented the same, otherwise YAML keeps the
+    # newlines and `sh` sees a line starting with `&&`.
+    command: >
+      sh -c 'while true; do
+      stamp=$$(date -u +%Y%m%dT%H%M%SZ);
+      if tar czf "/backups/workspace-$$stamp.tar.gz" -C /workspace . 2>/dev/null; then
+      echo "[backup] wrote workspace-$$stamp.tar.gz";
+      else echo "[backup] snapshot failed"; fi;
+      ls -1t /backups/workspace-*.tar.gz 2>/dev/null | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -f;
+      sleep "$$BACKUP_INTERVAL_SECONDS";
+      done'
+
+volumes:
+  pgdata:
+  workspace:
+  agy-home:

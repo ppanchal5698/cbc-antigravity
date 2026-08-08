@@ -1,0 +1,28 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Sandbox Isolated Workspace & Outputs
+sandbox/workspace/*
+!sandbox/workspace/.gitkeep
+sandbox/outputs/*
+!sandbox/outputs/.gitkeep
+
+# IDE & OS Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# MCP index caches (rebuilt on demand)
+.agent/cache/
+.pytest_cache/

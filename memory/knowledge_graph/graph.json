@@ -1,0 +1,501 @@
+{
+  "okf_version": "1.1.0",
+  "metadata": {
+    "title": "CBC Commercial Estimating Knowledge Graph",
+    "total_nodes": 33,
+    "total_edges": 21,
+    "learning_cycles_completed": 0,
+    "last_updated": "2026-08-07T00:00:00Z",
+    "price_policy": "NO PRICES. CatalogProduct nodes carry identity and pricing basis only. Every price is looked up from catalog-intelligence at the moment of quoting, so it can be verified against the current price book.",
+    "margin_policy": "Only Wendy's programme margins are CBC-confirmed (requirements 6.1). Other brand accounts carry PENDING_CBC_DATA (NR-9) and fall back to the standard bands."
+  },
+  "nodes": [
+    {
+      "id": "brand:wendys",
+      "class": "BrandAccount",
+      "name": "Wendy's National Account",
+      "commodity_margin": 0.22,
+      "accessories_margin": 0.45,
+      "margin_status": "confirmed",
+      "margin_source": "requirements 6.1 - estimator session 14 Jul",
+      "tax_jurisdiction": "per_project_state",
+      "confidence": 1.0
+    },
+    {
+      "id": "brand:mcdonalds",
+      "class": "BrandAccount",
+      "name": "McDonald's Program",
+      "commodity_margin": null,
+      "accessories_margin": null,
+      "margin_status": "PENDING_CBC_DATA",
+      "margin_source": "NR-9 - special-customer margins not supplied; use standard bands and ask the estimator",
+      "preferred_throat_depth": "5-5/8\"",
+      "confidence": 1.0
+    },
+    {
+      "id": "brand:cava",
+      "class": "BrandAccount",
+      "name": "Cava Fast Casual",
+      "commodity_margin": null,
+      "accessories_margin": null,
+      "margin_status": "PENDING_CBC_DATA",
+      "margin_source": "NR-9 - special-customer margins not supplied; use standard bands and ask the estimator",
+      "confidence": 0.95
+    },
+    {
+      "id": "brand:standard_commercial",
+      "class": "BrandAccount",
+      "name": "Standard Commercial General Bid",
+      "commodity_margin": 0.27,
+      "accessories_margin": 0.56,
+      "partitions_margin": 0.35,
+      "margin_status": "confirmed",
+      "margin_source": "requirements 6.1 margin framework",
+      "confidence": 1.0
+    },
+    {
+      "id": "hw_set:HW-1-Interior-Office",
+      "class": "HardwareSetTemplate",
+      "name": "HW-1 Interior Office / Passage",
+      "category": "Interior Non-Rated",
+      "fire_rated": false,
+      "exterior": false,
+      "notes": "CBC reference grouping. The spec's own hardware schedule is the authority for any given opening (requirements 7.7).",
+      "confidence": 1.0
+    },
+    {
+      "id": "hw_set:HW-2-Restroom-Privacy",
+      "class": "HardwareSetTemplate",
+      "name": "HW-2 Restroom Privacy Single Occupant",
+      "category": "Interior Privacy",
+      "fire_rated": false,
+      "exterior": false,
+      "confidence": 1.0
+    },
+    {
+      "id": "hw_set:HW-3-Exterior-Exit",
+      "class": "HardwareSetTemplate",
+      "name": "HW-3 Exterior Panic Exit with Closer & Weatherstrip",
+      "category": "Exterior Egress",
+      "fire_rated": true,
+      "exterior": true,
+      "confidence": 1.0
+    },
+    {
+      "id": "hw_set:HW-4-Storage-Storeroom",
+      "class": "HardwareSetTemplate",
+      "name": "HW-4 Storage / Utility Storeroom Lock",
+      "category": "Interior Utility",
+      "fire_rated": true,
+      "exterior": false,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-BB1279-4.5x4.5-626",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "BB1279 4.5x4.5",
+      "finish": "626 (US26D)",
+      "category": "Hinges",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-BB1191-4.5x4.5-630-NRP",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "BB1191 4.5x4.5 NRP Stainless",
+      "finish": "630 (US32D)",
+      "category": "Exterior Hinges",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-3510-WTN-626",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "3510 WTN Passage",
+      "finish": "626 (US26D)",
+      "category": "Locksets",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-3540-WTN-626",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "3540 WTN Privacy with Indicator",
+      "finish": "626 (US26D)",
+      "category": "Locksets",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-3570-WTN-626",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "3570 WTN Storeroom",
+      "finish": "626 (US26D)",
+      "category": "Locksets",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-5200-ALM",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "5200 Heavy Duty Door Closer",
+      "finish": "ALM (689 Aluminum)",
+      "category": "Door Closers",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Rockwood-K1050-10x34-630",
+      "class": "CatalogProduct",
+      "vendor": "Rockwood",
+      "model": "K1050 Kick Plate 10\" x 34\" .050\"",
+      "finish": "630 (US32D)",
+      "category": "Protection Plates",
+      "pricing_basis": "list",
+      "multiplier": 0.55,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Hager-236W-US26D",
+      "class": "CatalogProduct",
+      "vendor": "Hager",
+      "model": "236W Convex Wall Stop",
+      "finish": "US26D (626)",
+      "category": "Stops",
+      "pricing_basis": "list",
+      "multiplier": 0.29,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:NGP-5050B-Charcoal",
+      "class": "CatalogProduct",
+      "vendor": "National Guard Products",
+      "model": "5050B Adhesive Smoke Seal",
+      "category": "Gasketing",
+      "pricing_basis": "list",
+      "multiplier": 0.45,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Pemko-2005AV-36",
+      "class": "CatalogProduct",
+      "vendor": "Pemko",
+      "model": "2005AV Commercial Saddle Threshold 36\"",
+      "category": "Thresholds",
+      "pricing_basis": "list",
+      "multiplier": 0.45,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Bobrick-B-262",
+      "class": "CatalogProduct",
+      "vendor": "Bobrick",
+      "model": "B-262 Surface Towel Dispenser",
+      "finish": "Satin Stainless",
+      "category": "Washroom Accessories",
+      "pricing_basis": "net",
+      "multiplier": 1.0,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Bobrick-B-2111",
+      "class": "CatalogProduct",
+      "vendor": "Bobrick",
+      "model": "B-2111 Surface Soap Dispenser",
+      "finish": "Satin Stainless",
+      "category": "Washroom Accessories",
+      "pricing_basis": "net",
+      "multiplier": 1.0,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Bobrick-B-5806x36",
+      "class": "CatalogProduct",
+      "vendor": "Bobrick",
+      "model": "B-5806 x 36\" Concealed Grab Bar",
+      "finish": "Satin Stainless",
+      "category": "Grab Bars",
+      "pricing_basis": "net",
+      "multiplier": 1.0,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:Bobrick-B-5806x42",
+      "class": "CatalogProduct",
+      "vendor": "Bobrick",
+      "model": "B-5806 x 42\" Concealed Grab Bar",
+      "finish": "Satin Stainless",
+      "category": "Grab Bars",
+      "pricing_basis": "net",
+      "multiplier": 1.0,
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:WorldDryer-DXA5-974",
+      "class": "CatalogProduct",
+      "vendor": "World Dryer",
+      "model": "DXA5-974 Airforce High Speed Hand Dryer White",
+      "category": "Hand Dryers",
+      "pricing_basis": "list",
+      "multiplier": 0.339,
+      "notes": "World Dryer's price list is an .xlsx and is NOT indexed by catalog-intelligence. Cost must be entered by hand from the spreadsheet.",
+      "price_lookup": "manual",
+      "confidence": 1.0
+    },
+    {
+      "id": "prod:NUDO-FRP-0.090-White",
+      "class": "CatalogProduct",
+      "vendor": "NUDO",
+      "model": "FiberLite 0.090\" Class C White 4x10 Sheet",
+      "category": "FRP Wall Panels",
+      "pricing_basis": "list",
+      "multiplier": 1.0,
+      "notes": "NUDO sheets are a text_only catalog - price with search_catalog + get_page, not list_division.",
+      "confidence": 1.0
+    },
+    {
+      "id": "wall:mcdonalds_3_5_8_half_drywall",
+      "class": "WallTypeMapping",
+      "wall_description": "3-5/8 stud with 1/2 drywall both sides",
+      "recommended_throat": "5-5/8\"",
+      "stud_size_in": 3.625,
+      "drywall_thickness": "1/2\"",
+      "confidence": 1.0
+    },
+    {
+      "id": "wall:standard_commercial_drywall",
+      "class": "WallTypeMapping",
+      "wall_description": "3-5/8 stud with 5/8 Type X drywall both sides",
+      "recommended_throat": "5-7/8\"",
+      "stud_size_in": 3.625,
+      "drywall_thickness": "5/8\"",
+      "confidence": 1.0
+    },
+    {
+      "id": "wall:cmu_masonry_block",
+      "class": "WallTypeMapping",
+      "wall_description": "8 inch Concrete Masonry Unit block partition",
+      "recommended_throat": "5-3/4\"",
+      "confidence": 1.0
+    },
+    {
+      "id": "wall:wood_stud_partition",
+      "class": "WallTypeMapping",
+      "wall_description": "2x6 wood stud with 5/8 drywall",
+      "recommended_throat": "7-3/4\"",
+      "confidence": 0.95
+    },
+    {
+      "id": "wall:heavy_plumbing_chase_6in",
+      "class": "WallTypeMapping",
+      "wall_description": "6 inch metal stud with 5/8 drywall both sides",
+      "recommended_throat": "8-1/4\"",
+      "stud_size_in": 6.0,
+      "confidence": 1.0
+    },
+    {
+      "id": "equiv:LCN-4040XP-to-Hager-5200",
+      "class": "VendorEquivalence",
+      "specified_vendor": "LCN (Allegion)",
+      "specified_model": "4040XP Door Closer",
+      "proposed_vendor": "Hager",
+      "proposed_model": "5200 Heavy Duty Closer ALM",
+      "equivalence_tier": "direct_equal",
+      "estimator_approved": true,
+      "confidence": 0.98
+    },
+    {
+      "id": "equiv:Schlage-ND53PD-to-Hager-3570",
+      "class": "VendorEquivalence",
+      "specified_vendor": "Schlage (Allegion)",
+      "specified_model": "ND53PD Rhodes Storeroom",
+      "proposed_vendor": "Hager",
+      "proposed_model": "3570 WTN Storeroom 626",
+      "equivalence_tier": "direct_equal",
+      "estimator_approved": true,
+      "confidence": 0.96
+    },
+    {
+      "id": "equiv:ASI-0197-to-Bobrick-B-262",
+      "class": "VendorEquivalence",
+      "specified_vendor": "ASI",
+      "specified_model": "0197 Surface Towel Dispenser",
+      "proposed_vendor": "Bobrick",
+      "proposed_model": "B-262 Surface Towel Dispenser",
+      "equivalence_tier": "direct_equal",
+      "estimator_approved": true,
+      "confidence": 1.0
+    },
+    {
+      "id": "uncarried:10-21-13-Toilet-Partitions",
+      "class": "UncarriedDivisionPattern",
+      "csi_division": "10 21 13",
+      "description": "Solid Plastic / Powder Coated Toilet Partitions",
+      "status": "[not carried on shelf - outside RFQ required]",
+      "confidence": 1.0
+    },
+    {
+      "id": "uncarried:10-51-00-Lockers",
+      "class": "UncarriedDivisionPattern",
+      "csi_division": "10 51 00",
+      "description": "Metal / Phenolic Corridor Lockers",
+      "status": "[not carried on shelf - outside RFQ required]",
+      "confidence": 1.0
+    },
+    {
+      "id": "uncarried:10-44-00-Fire-Extinguisher-Cabinets",
+      "class": "UncarriedDivisionPattern",
+      "csi_division": "10 44 00",
+      "description": "Fire Extinguisher Cabinets and Fire Protection Specialties",
+      "status": "[not carried on shelf - outside RFQ required]",
+      "confidence": 1.0
+    }
+  ],
+  "edges": [
+    {
+      "source": "brand:wendys",
+      "target": "hw_set:HW-1-Interior-Office",
+      "type": "PREFERS_HARDWARE_SET",
+      "weight": 10,
+      "frequency": 24
+    },
+    {
+      "source": "brand:wendys",
+      "target": "hw_set:HW-2-Restroom-Privacy",
+      "type": "PREFERS_HARDWARE_SET",
+      "weight": 10,
+      "frequency": 24
+    },
+    {
+      "source": "brand:wendys",
+      "target": "hw_set:HW-3-Exterior-Exit",
+      "type": "PREFERS_HARDWARE_SET",
+      "weight": 10,
+      "frequency": 12
+    },
+    {
+      "source": "brand:mcdonalds",
+      "target": "wall:mcdonalds_3_5_8_half_drywall",
+      "type": "PREFERS_THROAT",
+      "weight": 15,
+      "frequency": 30
+    },
+    {
+      "source": "hw_set:HW-1-Interior-Office",
+      "target": "prod:Hager-BB1279-4.5x4.5-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 3,
+      "sizing_rule": "standard"
+    },
+    {
+      "source": "hw_set:HW-1-Interior-Office",
+      "target": "prod:Hager-3510-WTN-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-1-Interior-Office",
+      "target": "prod:Hager-236W-US26D",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-2-Restroom-Privacy",
+      "target": "prod:Hager-BB1279-4.5x4.5-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 3
+    },
+    {
+      "source": "hw_set:HW-2-Restroom-Privacy",
+      "target": "prod:Hager-3540-WTN-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-2-Restroom-Privacy",
+      "target": "prod:Hager-5200-ALM",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-2-Restroom-Privacy",
+      "target": "prod:Rockwood-K1050-10x34-630",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1,
+      "sizing_rule": "door_width_minus_2in"
+    },
+    {
+      "source": "hw_set:HW-2-Restroom-Privacy",
+      "target": "prod:Hager-236W-US26D",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-3-Exterior-Exit",
+      "target": "prod:Hager-BB1191-4.5x4.5-630-NRP",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 3
+    },
+    {
+      "source": "hw_set:HW-3-Exterior-Exit",
+      "target": "prod:Hager-5200-ALM",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-3-Exterior-Exit",
+      "target": "prod:Rockwood-K1050-10x34-630",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-3-Exterior-Exit",
+      "target": "prod:NGP-5050B-Charcoal",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-3-Exterior-Exit",
+      "target": "prod:Pemko-2005AV-36",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1,
+      "sizing_rule": "equal_to_door_width"
+    },
+    {
+      "source": "hw_set:HW-4-Storage-Storeroom",
+      "target": "prod:Hager-BB1279-4.5x4.5-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 3
+    },
+    {
+      "source": "hw_set:HW-4-Storage-Storeroom",
+      "target": "prod:Hager-3570-WTN-626",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-4-Storage-Storeroom",
+      "target": "prod:Hager-5200-ALM",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    },
+    {
+      "source": "hw_set:HW-4-Storage-Storeroom",
+      "target": "prod:Hager-236W-US26D",
+      "type": "CONTAINS_COMPONENT",
+      "quantity": 1
+    }
+  ]
+}

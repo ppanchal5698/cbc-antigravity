@@ -1,0 +1,20 @@
+[project]
+name = "building-plan-intelligence"
+version = "0.1.0"
+description = "MCP server that lets an IDE's own LLM/VLM read architectural plan sets"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.0.0",
+    # AGPL-3.0 (or Artifex commercial). See README before redistributing.
+    "pymupdf>=1.24",
+]
+
+[project.scripts]
+building-plan-intelligence = "bpi.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["bpi"]

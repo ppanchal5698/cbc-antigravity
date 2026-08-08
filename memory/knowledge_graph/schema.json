@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "okf_version": "1.1.0",
+  "name": "CBC-Commercial-Estimating-Ontology",
+  "description": "OKF ontology for CBC commercial estimating: brand programmes, hardware set templates, throat derivations, vendor substitutions, and patterns learned from estimator corrections. Validated on load by cbc_engine.okf.OKFKnowledgeGraph.validate().",
+  "invariants": [
+    "No node carries a price. CatalogProduct holds identity and pricing basis only; list_price, net_cost, price and cost are rejected by validate(). Prices are looked up from catalog-intelligence at quote time so they can be verified against the current price book.",
+    "Node-level certainty is always the field `confidence` (0.0-1.0). There is no `confidence_score`.",
+    "Every edge's source and target must resolve to an existing node."
+  ],
+  "entity_classes": {
+    "BrandAccount": {
+      "description": "National account or chain brand client with a standardized hardware and margin programme",
+      "required_fields": ["id", "name"],
+      "optional_fields": [
+        "commodity_margin", "accessories_margin", "partitions_margin",
+        "margin_status", "margin_source", "preferred_throat_depth",
+        "tax_jurisdiction", "preferred_vendors", "confidence", "notes"
+      ],
+      "notes": "Only Wendy's programme margins are CBC-confirmed (requirements 6.1). Any other brand carries margin_status 'PENDING_CBC_DATA' (NR-9), and get_brand_intelligence returns the standard bands rather than inventing a rate."
+    },
+    "HardwareSetTemplate": {
+      "description": "A CBC reference hardware grouping. The spec's own hardware schedule outranks it (requirements 7.7).",
+      "required_fields": ["id", "name", "category"],
+      "optional_fields": ["fire_rated", "exterior", "door_type_compatibility", "confidence", "notes"]
+    },
+    "CatalogProduct": {
+      "description": "Vendor product identity and pricing basis. NEVER a price.",
+      "required_fields": ["id", "vendor", "model", "category"],
+      "optional_fields": ["finish", "size", "pricing_basis", "multiplier", "price_lookup", "confidence", "notes"],
+      "forbidden_fields": ["list_price", "net_cost", "price", "cost"]
+    },
+    "WallTypeMapping": {
+      "description": "Architectural wall description mapped to a hollow metal frame throat depth",
+      "required_fields": ["id", "wall_description", "recommended_throat"],
+      "optional_fields": ["stud_size_in", "drywall_thickness", "confidence"]
+    },
+    "VendorEquivalence": {
+      "description": "A substitution between a specified product and one CBC stocks. Always requires GC approval when quoted.",
+      "required_fields": ["id", "specified_model", "proposed_vendor", "proposed_model"],
+      "optional_fields": ["specified_vendor", "equivalence_tier", "estimator_approved", "confidence"]
+    },
+    "EstimatorCorrectionPattern": {
+      "description": "A rule learned from a human estimator override in memory/corrections.jsonl",
+      "required_fields": ["id", "trigger_context", "override_value"],
+      "optional_fields": ["original_suggestion", "reason", "division", "confidence_weight", "times_applied", "last_applied_timestamp"],
+      "notes": "confidence_weight starts at 0.6 and rises by 0.1 each time the same override is applied again. One override is evidence, not law."
+    },
+    "UncarriedDivisionPattern": {
+      "description": "A CSI division no vendor on the shelf covers, requiring an outside RFQ",
+      "required_fields": ["id", "csi_division", "status"],
+      "optional_fields": ["description", "confidence"],
+      "notes": "Do not name a recommended outside vendor. Scranton was removed at CBC's instruction (requirements 2.2 — access lost)."
+    }
+  },
+  "relation_types": {
+    "PREFERS_HARDWARE_SET": {
+      "source": "BrandAccount",
+      "target": "HardwareSetTemplate",
+      "attributes": ["weight", "frequency", "last_used"],
+      "written_by": "okf_learn_from_quote"
+    },
+    "PREFERS_THROAT": {
+      "source": "BrandAccount",
+      "target": "WallTypeMapping",
+      "attributes": ["weight", "frequency", "last_used"],
+      "notes": "A brand programme's standard wall build (McDonald's 5-5/8\"). Previously mistyped as PREFERS_HARDWARE_SET pointing at a WallTypeMapping."
+    },
+    "CONTAINS_COMPONENT": {
+      "source": "HardwareSetTemplate",
+      "target": "CatalogProduct",
+      "attributes": ["quantity", "sizing_rule", "is_optional"]
+    },
+    "SUBSTITUTED_BY": {
+      "source": "CatalogProduct",
+      "target": "CatalogProduct",
+      "attributes": ["confidence", "estimator_approved", "times_used"],
+      "written_by": "okf_learn_from_correction"
+    },
+    "SUPERSEDES": {
+      "source": "EstimatorCorrectionPattern",
+      "target": "CatalogProduct",
+      "attributes": ["priority_weight", "reason"],
+      "written_by": "okf_learn_from_correction"
+    }
+  }
+}

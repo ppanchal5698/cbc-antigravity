@@ -1,0 +1,4 @@
+{
+  "name": "building-plan",
+  "description": "Architectural plan set reading: sheet indexing, schedule extraction, vision passes over outlined sheets, and verbatim fact verification via the building-plan-intelligence MCP server."
+}

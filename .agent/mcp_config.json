@@ -1,0 +1,32 @@
+{
+  "$schema": "https://antigravity.google/schemas/mcp_config.json",
+  "mcpServers": {
+    "building-plan-intelligence": {
+      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "bpi.server"],
+      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "env": {
+        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\building-plan-intelligence",
+        "BPI_CACHE": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\cache\\building-plan-intelligence"
+      }
+    },
+    "catalog-intelligence": {
+      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "catint.server"],
+      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "env": {
+        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\catalog-intelligence",
+        "CATINT_CACHE": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\cache\\catalog-intelligence"
+      }
+    },
+    "cbc-estimating-engine": {
+      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "cbc_engine.server"],
+      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "env": {
+        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\cbc-estimating-engine",
+        "CBC_WORKSPACE_ROOT": "c:\\Parth Panchal\\mcp-servers\\CBC"
+      }
+    }
+  }
+}
