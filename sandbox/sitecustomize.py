@@ -14,6 +14,7 @@ __pycache__ still works.
 """
 
 import builtins
+import io
 import os
 import shutil
 import sys
@@ -61,6 +62,10 @@ if _SANDBOX:
         return _real_open(file, mode, *args, **kwargs)
 
     builtins.open = _guarded_open
+    # `pathlib.Path.open`, and therefore `Path.write_text` / `Path.write_bytes`, call
+    # `io.open` directly - patching only `builtins.open` left the whole pathlib API
+    # unguarded, which is the way most modern code writes a file in the first place.
+    io.open = _guarded_open
 
     for _mod, _name, _what, _argno in (
         (os, "remove", "remove", 0),

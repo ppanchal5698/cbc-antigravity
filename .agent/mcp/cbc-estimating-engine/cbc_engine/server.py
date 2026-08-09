@@ -21,7 +21,16 @@ mcp = MCPServer(
         "tiers, margin bands, finish translation, frame throat derivation, FRP "
         "takeoff, hardware set expansion, and proposal formatting. "
         "Prices NEVER come from this engine — they come from catalog-intelligence. "
-        "This engine provides the MATH and REFERENCE DATA only."
+        "This engine provides the MATH and REFERENCE DATA only.\n"
+        "RULES THAT PREVENT WRONG ANSWERS:\n"
+        "1. Never invent a cost, margin, multiplier, or adder. Call the tools; if "
+        "inputs are missing, return that fact — do not fill the gap.\n"
+        "2. Every priced line must carry cost_source and cost_source_detail. The "
+        "audit gate rejects lines without them.\n"
+        "3. Never treat a list price as net cost. Callers supply cost already "
+        "resolved via catalog-intelligence and price_basis / already_net.\n"
+        "4. format_cbc_proposal audit failures are blocking — fix the named lines; "
+        "do not bypass the gate."
     ),
 )
 
@@ -51,9 +60,22 @@ def lookup_vendor_multiplier(vendor: str) -> Dict[str, Any]:
 def get_margin_band(
     product_category: str,
     customer: Optional[str] = None,
+    override_margin: Optional[float] = None,
+    override_reason: str = "",
 ) -> Dict[str, Any]:
-    """Retrieve standard CBC margin rate and divisor for a product category (with customer override)."""
-    return engine.get_margin_band(product_category=product_category, customer=customer)
+    """Retrieve standard CBC margin rate and divisor for a product category.
+
+    Precedence, most specific first: `override_margin` > customer programme > category
+    band. Requirements 6.1 / FR-5 make margin an editable default — a Banner/SecLock buy
+    carries less margin than a direct one — so pass `override_margin` with an
+    `override_reason` and the deviation from standard is recorded on the result.
+    """
+    return engine.get_margin_band(
+        product_category=product_category,
+        customer=customer,
+        override_margin=override_margin,
+        override_reason=override_reason,
+    )
 
 
 @mcp.tool()
@@ -155,7 +177,11 @@ def route_model_for_task(
     is_fire_rated_or_complex: bool = False,
     opening_count: int = 1,
 ) -> Dict[str, Any]:
-    """Deterministically route an inflight estimating task to the optimal model tier (Tier 1 Flash / Tier 2 Pro / Tier 3 Vision)."""
+    """Classify how much effort an estimating step is allowed to cost: routine | deliberate | visual.
+
+    Effort tiers, not models. Model selection belongs to the user in Antigravity's model
+    picker and nothing here can switch it.
+    """
     return engine.route_model_for_task(
         task_type=task_type,
         vision_need=vision_need,

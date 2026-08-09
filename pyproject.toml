@@ -9,6 +9,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "rich>=13.0.0",
     "pytest>=8.0.0",
+    # catalog-intelligence reads .xlsx price lists, and the workspace's own xlsx
+    # exporters import it. It was previously pip-installed by the Docker entrypoint
+    # only and declared nowhere, so a fresh local install could not index a spreadsheet.
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +24,9 @@ dev = [
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
 
 [tool.pyright]
 extraPaths = [
@@ -35,5 +42,10 @@ extraPaths = [
     ".agent/mcp/building-plan-intelligence",
     ".agent/mcp/catalog-intelligence",
     ".agent/mcp/cbc-estimating-engine",
+]
+
+[tool.uv.workspace]
+members = [
+    "catalogs",
 ]
 

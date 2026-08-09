@@ -116,6 +116,9 @@ back rather than filling the gap yourself.
 - Is every number computed by the engine?
 - Is every fact verified against the document it came from?
 - Is every gap stated rather than filled?
+- Does every gap use `[not stated]`, `[not indexed]`, or `[not carried]`?
 - Is every substitution labelled as one?
+- Are incomplete specialist payloads returned to the specialist (or raised as RFIs),
+  never silently completed with invented fields?
 - Does the output say **"Draft Proposal for Estimator Review"**?
 - Does it close with what could not be confirmed?

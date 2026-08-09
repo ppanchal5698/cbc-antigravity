@@ -5,10 +5,6 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { Project } from '@/types/events';
 
-/**
- * Creating a project writes a database row and a matching folder on disk in one
- * transaction; if the row fails the folder is removed, so the two never drift.
- */
 export function CreateProject() {
   const router = useRouter();
   const [name, setName] = useState('');
@@ -42,7 +38,7 @@ export function CreateProject() {
   };
 
   return (
-    <div className="flex items-end gap-4">
+    <div className="flex items-end gap-2">
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -51,13 +47,13 @@ export function CreateProject() {
         }}
         placeholder="New project name"
         aria-label="New project name"
-        className="border-rule focus:border-signal placeholder:text-ink-muted w-56 border-b bg-transparent py-1.5 text-[13px] outline-none"
+        className="border-rule bg-panel focus:border-signal placeholder:text-ink-muted w-56 rounded-md border px-2.5 py-1.5 text-[13px] outline-none"
       />
       <button
         type="button"
         onClick={() => void create()}
         disabled={!name.trim() || busy}
-        className="t-label hover:text-signal cursor-pointer py-2 transition-colors disabled:opacity-40"
+        className="bg-signal text-primary-foreground hover:bg-signal/90 cursor-pointer rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
       >
         {busy ? 'Creating…' : 'Create'}
       </button>

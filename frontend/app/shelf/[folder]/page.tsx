@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { divisionsForVendor, getCatalogPage, getVendor } from '@/lib/catalog';
 import { formatTier, getEngineReference, tierFor } from '@/lib/engine-reference';
+import { ScopedChat } from '@/components/chat/scoped-chat';
 import { CoverageBar } from '@/components/shelf/coverage-bar';
 import { CatalogPageView } from '@/components/shelf/catalog-page';
 import { ProductTable } from '@/components/shelf/product-table';
@@ -28,7 +29,10 @@ export default async function VendorPage({
 
   const pageParam = Array.isArray(query.page) ? query.page[0] : query.page;
   const pageNumber = pageParam ? Number(pageParam) : NaN;
-  const catalogPage = Number.isFinite(pageNumber) ? getCatalogPage(vendor.folder, pageNumber) : null;
+  const bookHint = Array.isArray(query.book) ? query.book[0] : query.book;
+  const catalogPage = Number.isFinite(pageNumber)
+    ? getCatalogPage(vendor.folder, pageNumber, bookHint)
+    : null;
 
   const initialQuery = Array.isArray(query.q) ? query.q[0] : (query.q ?? '');
 
@@ -50,7 +54,7 @@ export default async function VendorPage({
         }
       />
 
-      <div className="border-rule flex flex-wrap items-start justify-between gap-x-10 gap-y-5 border-b py-5">
+      <div className="panel mt-2 flex flex-wrap items-start justify-between gap-x-10 gap-y-5 p-4">
         <div className="min-w-0">
           <p className="t-label mb-2">Cost basis</p>
           <p className="flex flex-wrap items-center gap-2.5">
@@ -139,6 +143,15 @@ export default async function VendorPage({
       <Section label="Price rows" aside="model × size × finish">
         <ProductTable folder={vendor.folder} divisions={divisions} initialQuery={initialQuery} />
       </Section>
+
+      <ScopedChat
+        scope="vendor"
+        vendorFolders={[vendor.folder]}
+        context={{
+          vendorFolder: vendor.folder,
+          vendorBooks: vendor.books.map((book) => book.file),
+        }}
+      />
     </Page>
   );
 }

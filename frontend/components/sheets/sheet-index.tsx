@@ -50,20 +50,23 @@ export function SheetIndex({
 
   return (
     <div>
-      <div className="border-rule flex flex-wrap items-center gap-x-6 gap-y-3 border-b py-3">
+      <div className="panel mb-4 flex flex-wrap items-center gap-x-4 gap-y-3 p-3">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Sheet number, title or discipline"
           aria-label="Filter sheets"
-          className="border-rule focus:border-signal placeholder:text-ink-muted w-full max-w-xs border-b bg-transparent py-1 font-mono text-[13px] outline-none"
+          className="border-rule focus:border-signal placeholder:text-ink-muted w-full max-w-xs rounded-md border bg-transparent px-2.5 py-1.5 font-mono text-[13px] outline-none"
         />
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             type="button"
             onClick={() => setDocId('')}
-            className={cn('t-label cursor-pointer transition-colors', docId === '' ? 'text-ink' : 'hover:text-ink')}
+            className={cn(
+              'cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+              docId === '' ? 'bg-signal-wash text-signal' : 'text-ink-muted hover:bg-sunken',
+            )}
           >
             All sets
           </button>
@@ -74,8 +77,8 @@ export function SheetIndex({
               onClick={() => setDocId(doc.docId)}
               title={doc.path}
               className={cn(
-                't-label max-w-[16rem] cursor-pointer truncate transition-colors',
-                docId === doc.docId ? 'text-ink' : 'hover:text-ink',
+                'max-w-[16rem] cursor-pointer truncate rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                docId === doc.docId ? 'bg-signal-wash text-signal' : 'text-ink-muted hover:bg-sunken',
               )}
             >
               {doc.file}
@@ -87,8 +90,8 @@ export function SheetIndex({
           type="button"
           onClick={() => setVisionOnly((prev) => !prev)}
           className={cn(
-            't-label cursor-pointer transition-colors',
-            visionOnly ? 'text-signal' : 'hover:text-ink',
+            'cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+            visionOnly ? 'bg-signal-wash text-signal' : 'text-ink-muted hover:bg-sunken',
           )}
         >
           Needs vision
@@ -99,11 +102,11 @@ export function SheetIndex({
         </p>
       </div>
 
-      <div className="border-rule flex flex-wrap gap-x-5 gap-y-1 border-b py-2">
+      <div className="text-ink-muted mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
         {disciplines.map(([discipline, n]) => (
-          <span key={discipline} className="t-label normal-case">
+          <span key={discipline}>
             {discipline}
-            <span className="text-rule-strong ml-1.5 font-mono">{n}</span>
+            <span className="ml-1 font-mono opacity-70">{n}</span>
           </span>
         ))}
       </div>
@@ -111,7 +114,7 @@ export function SheetIndex({
       {filtered.length === 0 ? (
         <Empty title="No sheets match that filter." />
       ) : (
-        <div className="scroll-x">
+        <div className="panel scroll-x overflow-hidden">
           <table className="ledger">
             <thead>
               <tr>

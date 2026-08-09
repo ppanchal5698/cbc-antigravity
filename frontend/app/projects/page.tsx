@@ -58,7 +58,7 @@ export default async function ProjectsPage() {
           title="No projects yet. Name one above and a folder is created under plans/."
         />
       ) : (
-        <div className="border-rule scroll-x mt-6 border-t">
+        <div className="panel scroll-x mt-4 overflow-hidden">
           <table className="ledger">
             <thead>
               <tr>

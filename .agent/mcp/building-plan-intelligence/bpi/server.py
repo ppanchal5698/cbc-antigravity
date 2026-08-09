@@ -271,11 +271,12 @@ def verify_facts(doc_id: str, claims: list[str]) -> str:
     con = _con()
     try:
         _doc_row(con, doc_id)
-        pages = con.execute(
-            "SELECT page, source, body FROM sheet_text WHERE doc_id=?", (doc_id,)).fetchall()
         meta = {p: (s, t) for p, s, t in con.execute(
             "SELECT page, sheet_no, title FROM sheets WHERE doc_id=?", (doc_id,))}
-        blobs = [(p, src, ix.norm(b)) for p, src, b in pages]
+        # Normalized once per document and cached across calls, rather than
+        # re-normalized on every invocation of the tool the instructions say to run on
+        # every claim. The scan itself stays exhaustive - see the note on _NORM_CACHE.
+        blobs = ix.normalized_sheets(con, doc_id)
 
         results = []
         for claim in claims:

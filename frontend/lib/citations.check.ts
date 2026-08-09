@@ -35,6 +35,20 @@ assert.equal(cites('[Catalog] PEMKO pg. 42')[0].href, '/shelf/PEMKO?page=42');
 // A vendor with no page still reaches the vendor.
 assert.equal(cites('[catalog] NUDO direct rows')[0].href, '/shelf/NUDO');
 
+// When the citation names a book as well as a page, that has to survive into the link:
+// a vendor can have several books and page 212 means something different in each, so
+// dropping it left the shelf guessing which catalog to open.
+assert.equal(
+  cites('[catalog] Hager #18 p.42')[0].href,
+  '/shelf/HAGER?page=42&book=%2318',
+);
+assert.equal(
+  cites('[catalog] ROCKWOOD Accessories p.212')[0].href,
+  '/shelf/ROCKWOOD?page=212&book=Accessories',
+);
+// Vendor and page only: no book hint to pass on, and the query stays clean.
+assert.equal(cites('[catalog] BOBRICK p.8')[0].href, '/shelf/BOBRICK?page=8');
+
 // A vendor that is not on this shelf must not produce a dead link.
 assert.equal(cites('[catalog] Allegion p.4')[0].href, null);
 

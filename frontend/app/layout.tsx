@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
-import { Archivo, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/shell/theme-provider";
-import { TopNav } from "@/components/shell/top-nav";
+import { AppSidebar } from "@/components/shell/app-sidebar";
+import { TopBar } from "@/components/shell/top-bar";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-// Archivo is variable on width (62-125) as well as weight. Loading the wdth
-// axis is what lets `font-stretch` carry dense labels without a second family.
-const archivo = Archivo({
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  axes: ["wdth"],
-  variable: "--font-archivo",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plex-sans",
   display: "swap",
 });
 
@@ -33,16 +32,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${archivo.variable} ${plexMono.variable} h-full`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full`}
     >
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full">
         <ThemeProvider>
-          <TopNav />
-          <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+          <AppSidebar />
+          <div className="flex min-h-full min-w-0 flex-1 flex-col">
+            <TopBar />
+            <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+          </div>
           <CommandPalette />
           <Toaster
             position="bottom-right"
-            toastOptions={{ className: "rounded-none font-sans" }}
+            toastOptions={{ className: "rounded-lg font-sans" }}
           />
         </ThemeProvider>
       </body>

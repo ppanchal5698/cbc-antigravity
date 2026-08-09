@@ -96,4 +96,36 @@ assert.equal(buffer.frames.length, 2);
 assert.deepEqual(seen, [2]);
 assert.equal(buffer.finished, true);
 
+// `since` is the reconnect contract: Last-Event-ID N returns N+1 onwards.
+assert.deepEqual(buffer.since(0).map((f) => f.id), [1, 2]);
+assert.deepEqual(buffer.since(1).map((f) => f.id), [2]);
+assert.deepEqual(buffer.since(2), []);
+
+// Past the frame cap, ids must keep rising. They used to be read off
+// `frames.length` after the shift, which pinned every later frame at id 5000 and
+// silently broke reconnect for any run long enough to matter.
+const long = new RunBuffer();
+const ids: number[] = [];
+long.subscribe((id) => ids.push(id));
+for (let i = 0; i < 6000; i += 1) long.push({ kind: 'token', text: String(i) });
+
+assert.equal(ids.length, 6000);
+assert.deepEqual(ids, ids.map((_, i) => i + 1), 'event ids are not monotonic past the cap');
+assert.equal(long.lastId, 6000);
+assert.equal(long.firstId, 1001, 'firstId did not track the evicted frames');
+
+// A resume lands on the frame that actually follows the last one the client saw.
+const resumed = long.since(5500);
+assert.equal(resumed[0]!.id, 5501);
+assert.equal(
+  resumed[0]!.frame.kind === 'token' ? resumed[0]!.frame.text : null,
+  '5500',
+  'resume returned the wrong frame',
+);
+assert.equal(resumed.at(-1)!.id, 6000);
+
+// A client asking for a frame that has already been evicted gets the oldest
+// surviving one rather than an empty replay.
+assert.equal(long.since(0)[0]!.id, 1001);
+
 console.log('event mapping check passed');

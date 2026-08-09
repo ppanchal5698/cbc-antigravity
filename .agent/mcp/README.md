@@ -9,8 +9,10 @@ source.**
 | `catalog-intelligence/` | `catint` | `catalog-intelligence` |
 | `cbc-estimating-engine/` | `cbc_engine` | `cbc-estimating-engine` |
 
-All three are installed editable into `../../.venv` and registered in
-[`../mcp_config.json`](../mcp_config.json).
+All three run on `../../.venv` and are registered in
+[`../mcp_config.json`](../mcp_config.json), which puts each server's directory on
+`PYTHONPATH` — they are **not** editable-installed into the venv, so removing those
+`PYTHONPATH` entries stops all three from importing.
 
 ## Superseded copies
 

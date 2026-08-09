@@ -48,7 +48,7 @@ installs the three MCP servers. It is skipped on every boot after that.
 
 | Service | Role |
 |---|---|
-| `db` | Postgres 18. `projects`, `files`, `workflow_runs`, `chat_sessions`. |
+| `db` | Postgres 18. `projects`, `files`, `workflow_runs`, `chat_sessions`, `quote_drafts`, `quote_lines`. |
 | `agent` | The long-lived Antigravity connection: SSE gateway on `:8787` plus the document worker. `agy` is always launched with `cwd=/workspace`. |
 | `web` | Next.js UI. Proxies chat and run events to `agent`; talks to Postgres directly. |
 | `backup` | Periodic `tar.gz` snapshot of the workspace volume into `./backups`. |
@@ -82,6 +82,15 @@ invokes the workspace's own `/run-estimate` workflow with
 `--json-schema lib/xlsx/schema.json`.
 
 Every output is a draft for estimator review. Nothing is sent to a customer.
+
+### Soft-industrial UI + FR-9 review
+
+The app shell uses a left sidebar (Work / Reference) and a compact top bar.
+After an estimate completes, open **Review** on the run
+(`/projects/<id>/runs/<runId>/review`) to accept, edit, reject, or add lines,
+enter manual prices and substitution notes, then **Approve & export**. Approval
+regenerates the fixed-template `.xlsx` from the accepted lines; download is
+secondary until then.
 
 ---
 

@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .engine import FINISH_MAP, stud_width_in
+
 # Required fields per class, from knowledge_graph/schema.json. Validated on load so a
 # malformed node is reported rather than silently returning None from a .get().
 REQUIRED_FIELDS = {
@@ -38,6 +40,23 @@ FORBIDDEN_PRODUCT_FIELDS = ("list_price", "net_cost", "price", "cost")
 # Apostrophes are dropped, not replaced: "Wendy's" is `wendys`, not `wendy_s`.
 _ID_DROP = re.compile(r"['’.]")
 _ID_PUNCT = re.compile(r"[^a-z0-9]+")
+
+
+def _model_tokens(text: str) -> set:
+    """Model-number-shaped tokens in a free-text correction value.
+
+    A token qualifies if it is at least three characters, carries a digit, and is not a
+    finish code. That is what separates a genuine model swap ("3510" -> "3570") from a
+    finish fix ("US26D" -> "US32D") or a quantity fix ("3" -> "4"), neither of which is
+    a substitution however much the two strings differ.
+    """
+    return {
+        token.upper()
+        for token in re.split(r"[^\w/.-]+", text or "")
+        if len(token) >= 3
+        and any(char.isdigit() for char in token)
+        and token.upper() not in FINISH_MAP
+    }
 
 
 def _norm_id(value: str) -> str:
@@ -283,7 +302,10 @@ class OKFKnowledgeGraph:
         if any(k in desc for k in ("cmu", "masonry", "block", "concrete")):
             return {"recommended_throat": '5-3/4"', "confidence": 0.90,
                     "source": "heuristic_masonry"}
-        if any(k in desc for k in ('6"', "6 in", "6 inch")):
+        # Shared with engine.calculate_frame_throat. The old test was `'6"' in desc`,
+        # which fires on "26 inch" and misses `6" metal stud`.
+        stud = stud_width_in(desc)
+        if stud is not None and stud >= 6.0:
             return {"recommended_throat": '8-1/4"', "confidence": 0.90,
                     "source": "heuristic_6in_stud"}
         if "1/2" in desc and "drywall" in desc:
@@ -296,7 +318,16 @@ class OKFKnowledgeGraph:
                 "source": "heuristic_standard_default"}
 
     def lookup_vendor_equivalence(self, specified_model: str) -> Optional[Dict[str, Any]]:
-        """A learned substitution for a specified model, if one exists."""
+        """The best learned substitution for a specified model, if one exists.
+
+        Every candidate is scored and the strongest wins. This used to return the first
+        node that matched in insertion order, so a loose substring hit on a seeded node
+        beat an exact match stored later, and a freshly learned estimator override lost
+        to whatever happened to be in the file already - the opposite of the intent.
+
+        Ranked on how specifically the node matched, then on whether an estimator
+        approved it, then on confidence, and finally on how recently it was learned.
+        """
         target = (specified_model or "").lower().strip()
         if not target:
             return None
@@ -304,26 +335,48 @@ class OKFKnowledgeGraph:
         # while the node's specified_model is "4040XP Door Closer", and neither string
         # contains the other.
         target_tokens = {t for t in re.split(r"\W+", target) if len(t) > 2}
+
+        best: Optional[Dict[str, Any]] = None
+        best_rank: Optional[Tuple[int, int, float]] = None
         for node in self.get_nodes_by_class("VendorEquivalence"):
             spec = node.get("specified_model", "").lower()
+            if not spec:
+                continue
             spec_tokens = {t for t in re.split(r"\W+", spec) if len(t) > 2}
             model_token = next((t for t in re.split(r"\W+", spec) if any(c.isdigit() for c in t)),
                                None)
-            if spec and (spec in target or target in spec
-                         or (model_token and model_token in target_tokens)
-                         or (spec_tokens and spec_tokens <= target_tokens)):
-                return {
-                    "specified_vendor": node.get("specified_vendor"),
-                    "specified_model": node.get("specified_model"),
-                    "proposed_vendor": node.get("proposed_vendor"),
-                    "proposed_model": node.get("proposed_model"),
-                    "equivalence_tier": node.get("equivalence_tier", "direct_equal"),
-                    "estimator_approved": node.get("estimator_approved", False),
-                    "confidence": node.get("confidence", 0.95),
-                    "note": "A substitution requires GC approval. Present the specified "
-                            "product and the proposed equal side by side.",
-                }
-        return None
+
+            if spec == target:
+                strength = 4                                  # the same model, written the same way
+            elif spec_tokens and spec_tokens <= target_tokens:
+                strength = 3                                  # every word of the node is in the callout
+            elif model_token and model_token in target_tokens:
+                strength = 2                                  # the model number matches
+            elif spec in target or target in spec:
+                strength = 1                                  # one string contains the other
+            else:
+                continue
+
+            rank = (strength,
+                    int(bool(node.get("estimator_approved", False))),
+                    float(node.get("confidence", 0.95)))
+            # `>=` so that, all else equal, the most recently learned node wins.
+            if best_rank is None or rank >= best_rank:
+                best, best_rank = node, rank
+
+        if best is None:
+            return None
+        return {
+            "specified_vendor": best.get("specified_vendor"),
+            "specified_model": best.get("specified_model"),
+            "proposed_vendor": best.get("proposed_vendor"),
+            "proposed_model": best.get("proposed_model"),
+            "equivalence_tier": best.get("equivalence_tier", "direct_equal"),
+            "estimator_approved": best.get("estimator_approved", False),
+            "confidence": best.get("confidence", 0.95),
+            "note": "A substitution requires GC approval. Present the specified "
+                    "product and the proposed equal side by side.",
+        }
 
     def get_smart_recommendation(self, context_type: str, query: str) -> Dict[str, Any]:
         """Graph-grounded recommendation for one of the supported contexts."""
@@ -333,8 +386,12 @@ class OKFKnowledgeGraph:
                 return {"status": "found", "recommendation": equiv,
                         "source": "VendorEquivalence"}
             return {"status": "not_found",
-                    "message": "No learned substitution. Search the shelf with "
-                               "match_materials before proposing one."}
+                    "message": "No learned substitution. This graph holds only what an "
+                               "estimator has already approved. Before proposing "
+                               "anything, try catalog-intelligence `lookup_crossover` "
+                               "for the manufacturers' own published equivalents, then "
+                               "`match_materials` to find a comparable product by "
+                               "description."}
         if context_type == "frame_throat":
             return {"status": "resolved", "recommendation": self.resolve_wall_to_throat(query),
                     "source": "WallTypeMapping"}
@@ -469,9 +526,14 @@ class OKFKnowledgeGraph:
                 f"SUBSTITUTED_BY {superseded} -> {replacement}"
                 + ("" if created else " (updated)"))
 
-        # Only a genuine model swap becomes a VendorEquivalence.
+        # Only a genuine model swap becomes a VendorEquivalence. Comparing the two
+        # strings was not that test: it was true for every correction that changed
+        # anything, so a finish or quantity fix minted an `estimator_approved`
+        # substitution that `lookup_vendor_equivalence` then offered as an approved equal.
         equiv_id = None
-        if initial and _norm_id(initial) != _norm_id(override):
+        initial_models = _model_tokens(initial)
+        override_models = _model_tokens(override)
+        if initial_models and override_models and initial_models != override_models:
             equiv_id = f"equiv:{_norm_id(specified)[:30]}"
             self._index_node({
                 "id": equiv_id,

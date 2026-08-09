@@ -50,3 +50,47 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- FR-9: persistable quote draft. The .xlsx is an export of this, not the source of truth.
+CREATE TABLE IF NOT EXISTS quote_drafts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id          uuid NOT NULL UNIQUE REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  project_id      uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  header          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status          text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft', 'approved')),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS quote_drafts_project_idx ON quote_drafts(project_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS quote_lines (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  draft_id            uuid NOT NULL REFERENCES quote_drafts(id) ON DELETE CASCADE,
+  section             text NOT NULL
+                      CHECK (section IN ('door', 'accessory', 'frp', 'custom')),
+  sort_order          int NOT NULL DEFAULT 0,
+  tag                 text NOT NULL DEFAULT '',
+  room                text NOT NULL DEFAULT '',
+  description         text NOT NULL DEFAULT '',
+  qty                 double precision NOT NULL DEFAULT 0,
+  unit                text NOT NULL DEFAULT 'EA',
+  unit_sale           double precision NOT NULL DEFAULT 0,
+  cost_basis          text NOT NULL DEFAULT 'not_specified',
+  citations           text NOT NULL DEFAULT '[not stated]',
+  confidence          text CHECK (confidence IS NULL OR confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+  acceptance          text NOT NULL DEFAULT 'pending'
+                      CHECK (acceptance IN ('pending', 'accepted', 'rejected')),
+  pricing_status      text NOT NULL DEFAULT 'priced'
+                      CHECK (pricing_status IN ('priced', 'manual_entry_required', 'awaiting_vendor_rfq')),
+  price_freshness     text CHECK (price_freshness IS NULL OR price_freshness IN ('fresh', 'review', 'stale')),
+  substitution_notes  text,
+  unit_cost           double precision,
+  margin_rate         double precision,
+  deleted_at          timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS quote_lines_draft_idx ON quote_lines(draft_id, section, sort_order);

@@ -1,4 +1,7 @@
-import { writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { query, withTransaction } from '@/lib/db';
 import { hasAllowedExtension, resolveInside, safeFilename } from '@/lib/projects';
 import type { Project, ProjectFile } from '@/types/events';
@@ -7,6 +10,9 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 200);
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+// Multipart framing around the file itself: boundaries, headers, the trailing CRLFs.
+const MULTIPART_SLACK = 1024 * 1024;
 
 export async function GET(
   _request: Request,
@@ -40,6 +46,17 @@ export async function POST(
 ): Promise<Response> {
   const { id } = await ctx.params;
 
+  // Before touching the body: `formData()` parses the whole request into memory, so an
+  // oversized upload has already been buffered by the time `upload.size` can be read.
+  const declared = Number(request.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES + MULTIPART_SLACK) {
+    return Response.json(
+      { error: `File exceeds the ${MAX_UPLOAD_MB} MB limit` },
+      { status: 413 },
+    );
+  }
+
+  let target: string | null = null;
   try {
     const projects = await query<Project>('SELECT * FROM projects WHERE id = $1', [id]);
     const project = projects[0];
@@ -53,7 +70,7 @@ export async function POST(
     if (upload.size === 0) {
       return Response.json({ error: 'File is empty' }, { status: 400 });
     }
-    if (upload.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    if (upload.size > MAX_UPLOAD_BYTES) {
       return Response.json(
         { error: `File exceeds the ${MAX_UPLOAD_MB} MB limit` },
         { status: 413 },
@@ -64,8 +81,13 @@ export async function POST(
     }
 
     const filename = safeFilename(upload.name);
-    const target = resolveInside(project.folder_path, filename);
-    await writeFile(target, Buffer.from(await upload.arrayBuffer()));
+    target = resolveInside(project.folder_path, filename);
+    // Streamed rather than `Buffer.from(await upload.arrayBuffer())`, which held a
+    // second full copy of a file that can be 200 MB.
+    await pipeline(
+      Readable.fromWeb(upload.stream() as Parameters<typeof Readable.fromWeb>[0]),
+      createWriteStream(target),
+    );
 
     const { file, run } = await withTransaction(async (client) => {
       const fileRows = await client.query<ProjectFile>(
@@ -82,6 +104,9 @@ export async function POST(
 
     return Response.json({ file, runId: run.id }, { status: 201 });
   } catch (err) {
+    // A half-written file with no row behind it would be picked up by the folder-wide
+    // estimate prompt as if it were a real bid document.
+    if (target) await rm(target, { force: true }).catch(() => {});
     return Response.json({ error: message(err) }, { status: 500 });
   }
 }

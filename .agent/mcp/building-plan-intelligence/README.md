@@ -58,10 +58,12 @@ package is put on the path via `PYTHONPATH`:
 {
   "mcpServers": {
     "building-plan-intelligence": {
-      "command": "C:\\Python314\\python.exe",
+      "command": "<workspace>\\.venv\\Scripts\\python.exe",
       "args": ["-m", "bpi.server"],
       "env": {
-        "PYTHONPATH": "C:\\Parth Panchal\\mcp-servers\\building-plan-intelligence"
+        "PYTHONPATH": "<workspace>\\.agent\\mcp\\building-plan-intelligence",
+        "BPI_CACHE": "<workspace>\\.agent\\cache\\building-plan-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
       }
     }
   }
@@ -81,7 +83,7 @@ These support `cwd`, so either form works:
     "building-plan-intelligence": {
       "command": "python",
       "args": ["-m", "bpi.server"],
-      "cwd": "C:/Parth Panchal/mcp-servers/building-plan-intelligence"
+      "cwd": "<workspace>/.agent/mcp/building-plan-intelligence"
     }
   }
 }

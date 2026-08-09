@@ -31,5 +31,8 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // `.next/standalone` holds a build-time copy of every file under lib/ and server/.
+  // Without excluding it, `tsc --noEmit` typechecks the whole tree twice and reports
+  // each error against the copy as well as the source.
+  "exclude": ["node_modules", ".next/standalone", ".next/static"]
 }

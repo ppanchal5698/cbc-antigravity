@@ -77,9 +77,9 @@ export default async function DownloadsPage() {
         }
       />
 
-      <p className="text-ink-muted max-w-prose py-5 text-[13px] leading-relaxed">
-        Every workbook uses the same fixed template — the columns, sections and formulas never
-        change, only the values. Each one is a draft for estimator review.
+      <p className="text-ink-muted max-w-prose pb-5 text-[13px] leading-relaxed">
+        Review lines in the app first. Download exports the approved (or current draft) workbook —
+        same fixed CBC template, values only change.
       </p>
 
       {failure ? (
@@ -87,7 +87,7 @@ export default async function DownloadsPage() {
       ) : rows.length === 0 ? (
         <Empty title="No estimates yet. Upload a bid set to a project and one starts automatically." />
       ) : (
-        <div className="border-rule scroll-x border-t">
+        <div className="panel scroll-x overflow-hidden">
           <table className="ledger">
             <thead>
               <tr>
@@ -96,7 +96,7 @@ export default async function DownloadsPage() {
                 <th>State</th>
                 <th className="text-right">Started</th>
                 <th className="text-right">Finished</th>
-                <th className="text-right">File</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -122,14 +122,24 @@ export default async function DownloadsPage() {
                   <td className="num text-ink-muted">{stamp(row.created_at)}</td>
                   <td className="num text-ink-muted">{stamp(row.finished_at)}</td>
                   <td className="num">
-                    {row.status === 'completed' && row.output_path ? (
-                      <a
-                        href={`/api/runs/${row.id}/download`}
-                        download
-                        className="text-signal hover:text-ink underline underline-offset-2 transition-colors"
-                      >
-                        .xlsx
-                      </a>
+                    {row.status === 'completed' ? (
+                      <span className="inline-flex items-center gap-3">
+                        <Link
+                          href={`/projects/${row.project_id}/runs/${row.id}/review`}
+                          className="text-signal hover:text-ink font-medium no-underline"
+                        >
+                          Review
+                        </Link>
+                        {row.output_path ? (
+                          <a
+                            href={`/api/runs/${row.id}/download`}
+                            download
+                            className="text-ink-muted hover:text-ink no-underline"
+                          >
+                            .xlsx
+                          </a>
+                        ) : null}
+                      </span>
                     ) : (
                       '—'
                     )}

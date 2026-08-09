@@ -86,10 +86,17 @@ services:
       - ./backups:/backups
     # Folded scalar: every line is indented the same, otherwise YAML keeps the
     # newlines and `sh` sees a line starting with `&&`.
+    #
+    # .agent/cache holds the two SQLite indexes, which an MCP server may be writing
+    # while this runs - a tar of a half-written database restores as a corrupt one.
+    # They are excluded and rebuild on demand from the PDFs, which ARE in the archive,
+    # so nothing unrecoverable is dropped. Excluding them also keeps the snapshot small
+    # enough that BACKUP_KEEP hourly copies is affordable.
     command: >
       sh -c 'while true; do
       stamp=$$(date -u +%Y%m%dT%H%M%SZ);
-      if tar czf "/backups/workspace-$$stamp.tar.gz" -C /workspace . 2>/dev/null; then
+      if tar czf "/backups/workspace-$$stamp.tar.gz"
+      --exclude="./.agent/cache" --exclude="./.venv" -C /workspace . 2>/dev/null; then
       echo "[backup] wrote workspace-$$stamp.tar.gz";
       else echo "[backup] snapshot failed"; fi;
       ls -1t /backups/workspace-*.tar.gz 2>/dev/null | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -f;

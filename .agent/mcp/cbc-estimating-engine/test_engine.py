@@ -12,9 +12,12 @@ from cbc_engine import engine, okf
 _SANDBOX_ARTIFACTS = (
     "scripts/unit_test_script.py",
     "scripts/escape_check.py",
+    "scripts/pathlib_escape_check.py",
+    "scripts/pathlib_ok_check.py",
     "scripts/touch_one.py",
     "workspace/test_output.txt",
     "outputs/touched_one.txt",
+    "outputs/pathlib_ok.txt",
 )
 
 
@@ -104,6 +107,25 @@ class TestCBCEstimatingEngine(unittest.TestCase):
 
         std = engine.calculate_frame_throat("Standard drywall partition")
         self.assertEqual(std["recommended_throat"], "5-7/8\"")
+
+    def test_frame_throat_matches_its_own_standards_table(self):
+        """Every wall string STANDARD_FRAME_THROATS prints must derive the throat that
+        table pairs it with. `6" metal stud + 5/8" drywall` used to return 5-7/8"
+        because the matcher tested for the literal substring `6" stud`."""
+        for entry in engine.STANDARD_FRAME_THROATS:
+            got = engine.calculate_frame_throat(entry["wall"])
+            self.assertEqual(got["recommended_throat"], entry["throat"],
+                             f'{entry["wall"]!r} derived the wrong throat')
+
+    def test_frame_throat_reads_stud_width_however_it_is_written(self):
+        for wall in ('6" metal stud + 5/8" drywall', "6 metal stud with 5/8 gyp",
+                     '6" stud partition', "6 inch steel stud", "2x6 metal studs"):
+            self.assertEqual(
+                engine.calculate_frame_throat(wall)["recommended_throat"], '8-1/4"', wall)
+
+        for wall in ('3-5/8" metal stud + 5/8" Type X drywall', "3-5/8 stud"):
+            self.assertEqual(
+                engine.calculate_frame_throat(wall)["recommended_throat"], '5-7/8"', wall)
 
     def test_parse_door_size(self):
         d3070 = engine.parse_door_size("3070")
@@ -329,6 +351,18 @@ class TestGuardrails(unittest.TestCase):
         self.assertEqual(ok["sales_tax_amount"], 8.0)
         self.assertIsNone(ok["freight"]["amount"])          # FR-7 / Open Item 1
 
+    def test_alternate_is_reported_as_a_delta_against_the_base_bid(self):
+        """`net_delta_vs_base` carried the alternate's own total, so an alternate read
+        as its full value rather than what it changes."""
+        base = [{"ext_sale": 1000.0, "ext_cost": 730.0,
+                 "cost_source": "p21_last_po", "cost_source_detail": "PO 88213"}]
+        res = engine.format_cbc_proposal(
+            "t", base, [], state="PA",
+            alternates_lines=[{"name": "Alt 1 - stainless", "lines": [{"ext_sale": 1250.0}]}])
+        alt = res["alternates"][0]
+        self.assertEqual(alt["ext_sale"], 1250.0)
+        self.assertEqual(alt["net_delta_vs_base"], 250.0)
+
     def test_proposal_tax_by_state(self):
         line = [{"ext_sale": 1000.0, "ext_cost": 730.0,
                  "cost_source": "p21_last_po", "cost_source_detail": "PO 88213"}]
@@ -361,6 +395,51 @@ class TestGuardrails(unittest.TestCase):
             if (parent / "memory").is_dir():
                 self.assertFalse(probe.exists(), "sandbox guard did not hold")
                 break
+
+    def test_sandbox_guard_covers_pathlib(self):
+        """The guard patched builtins.open only. pathlib goes through io.open, so
+        Path.write_text - the way most code writes a file - walked straight past it."""
+        escape = (
+            "import os\n"
+            "from pathlib import Path\n"
+            "target = Path(os.environ['CBC_WORKSPACE_ROOT']) / 'memory' /"
+            " 'SANDBOX_PATHLIB_CANARY.txt'\n"
+            "for label, write in (\n"
+            "    ('write_text', lambda: target.write_text('escaped')),\n"
+            "    ('write_bytes', lambda: target.write_bytes(b'escaped')),\n"
+            "    ('path_open', lambda: target.open('w').write('escaped')),\n"
+            "):\n"
+            "    try:\n"
+            "        write()\n"
+            "        print(f'ESCAPED via {label}')\n"
+            "    except PermissionError:\n"
+            "        print(f'BLOCKED {label}')\n"
+        )
+        res = engine.execute_sandbox_script(
+            script_name="pathlib_escape_check.py", code_content=escape, timeout_seconds=20)
+        self.assertNotIn("ESCAPED", res["stdout"], res.get("stderr", ""))
+        for label in ("write_text", "write_bytes", "path_open"):
+            self.assertIn(f"BLOCKED {label}", res["stdout"])
+
+        canary = Path(engine.__file__).resolve()
+        for parent in canary.parents:
+            if (parent / "memory").is_dir():
+                self.assertFalse((parent / "memory" / "SANDBOX_PATHLIB_CANARY.txt").exists())
+                break
+
+    def test_sandbox_still_writes_inside_the_sandbox(self):
+        """Guarding io.open must not break legitimate pathlib writes to sandbox/."""
+        script = (
+            "import os\n"
+            "from pathlib import Path\n"
+            "p = Path(os.environ['CBC_OUTPUTS_ROOT']) / 'pathlib_ok.txt'\n"
+            "p.write_text('fine')\n"
+            "print('WROTE', p.read_text())\n"
+        )
+        res = engine.execute_sandbox_script(
+            script_name="pathlib_ok_check.py", code_content=script, timeout_seconds=20)
+        self.assertTrue(res["success"], res.get("stderr"))
+        self.assertIn("WROTE fine", res["stdout"])
 
     def test_sandbox_reports_only_the_files_it_touched(self):
         """created_files compared st_mtime against perf_counter, so every run reported
@@ -481,6 +560,79 @@ class TestOKFKnowledgeGraph(unittest.TestCase):
             "reason": "finish corrected to 630",
         })
         self.assertIsNone(res["equiv_id"])
+
+    def test_changed_finish_or_quantity_is_still_not_a_substitution(self):
+        """The guard only compared the two strings, so any correction that changed a
+        value at all minted an `estimator_approved` VendorEquivalence. A US26D -> US32D
+        finish fix taught the graph that 'US32D' was an approved equal for the hinge."""
+        for initial, override, why in (
+            ("US26D", "US32D", "finish"),
+            ("626", "630", "bhma finish"),
+            ("3", "4", "quantity"),
+        ):
+            res = self.kg.learn_from_correction({
+                "specified_callout": "Hager BB1279 4.5x4.5 hinge",
+                "copilot_initial_match": initial,
+                "estimator_override": override,
+                "reason": f"{why} corrected",
+            })
+            self.assertIsNone(res["equiv_id"], f"{why}: {initial} -> {override}")
+            self.assertIsNone(
+                self.kg.lookup_vendor_equivalence("Hager BB1279 4.5x4.5 hinge"), why)
+
+    def test_a_real_model_swap_is_still_learned(self):
+        """The guard must not be so tight that genuine substitutions stop landing, and
+        what was just learned must be what the lookup returns."""
+        res = self.kg.learn_from_correction({
+            "specified_callout": "Von Duprin 9947EO exit device",
+            "copilot_initial_match": "9947EO",
+            "estimator_override": "Hager 4500 Series Rim Exit",
+            "reason": "direct equal approved by GC",
+        })
+        self.assertIsNotNone(res["equiv_id"])
+        equiv = self.kg.get_node(res["equiv_id"])
+        self.assertEqual(equiv["class"], "VendorEquivalence")
+        self.assertEqual(equiv["proposed_model"], "Hager 4500 Series Rim Exit")
+        self.assertTrue(equiv["estimator_approved"])
+
+        found = self.kg.lookup_vendor_equivalence("Von Duprin 9947EO exit device")
+        self.assertEqual(found["proposed_model"], "Hager 4500 Series Rim Exit")
+
+    def test_equivalence_lookup_returns_the_best_match_not_the_first(self):
+        """It returned the first node that matched in insertion order, so a loose
+        substring hit on a seeded node beat an exact match stored later - and a freshly
+        learned estimator override lost to whatever was already in the file."""
+        # Deliberately inserted first, and deliberately the weaker match.
+        self.kg._index_node({
+            "id": "equiv:loose", "class": "VendorEquivalence",
+            "specified_model": "4040XP", "proposed_vendor": "Loose",
+            "proposed_model": "WRONG - loose substring match",
+            "estimator_approved": False, "confidence": 0.5,
+        })
+        self.kg._index_node({
+            "id": "equiv:exact", "class": "VendorEquivalence",
+            "specified_model": "lcn 4040xp closer", "proposed_vendor": "Exact",
+            "proposed_model": "RIGHT - exact match",
+            "estimator_approved": True, "confidence": 0.9,
+        })
+
+        found = self.kg.lookup_vendor_equivalence("LCN 4040XP closer")
+        self.assertEqual(found["proposed_model"], "RIGHT - exact match")
+
+        # With no exact match left, the estimator-approved node outranks the other.
+        self.kg.nodes.pop("equiv:exact")
+        self.kg._index_node({
+            "id": "equiv:approved", "class": "VendorEquivalence",
+            "specified_model": "4040XP", "proposed_vendor": "Approved",
+            "proposed_model": "RIGHT - approved",
+            "estimator_approved": True, "confidence": 0.6,
+        })
+        found = self.kg.lookup_vendor_equivalence("LCN 4040XP closer")
+        self.assertEqual(found["proposed_model"], "RIGHT - approved")
+
+    def test_equivalence_lookup_still_returns_none_when_nothing_matches(self):
+        self.assertIsNone(self.kg.lookup_vendor_equivalence("ZZQQ-9999 nonexistent"))
+        self.assertIsNone(self.kg.lookup_vendor_equivalence(""))
 
     def test_wall_to_throat_reads_the_field_the_graph_actually_has(self):
         """resolve_wall_to_throat read node['confidence'] while the schema documented

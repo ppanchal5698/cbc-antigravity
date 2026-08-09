@@ -18,26 +18,36 @@ import fitz
 from mcp.server.mcpserver import MCPServer
 
 from . import index as ix
+from . import overrides as ov
 
 mcp = MCPServer(
     name="catalog-intelligence",
     instructions=(
-        "Queries vendor price books / product catalogs (PDF).\n"
+        "Queries vendor price books / product catalogs (PDF and .xlsx price lists).\n"
         "WORKFLOW: 0) list_catalogs to see what is already indexed. "
-        "1) open_catalog(pdf_path) only for a book missing from that list — "
-        "never open every PDF on the shelf. 2) list_division to enumerate "
+        "1) open_catalog(path) only for a book missing from that list — "
+        "never open every file on the shelf. 2) list_division to enumerate "
         "everything in a division. 3) match_materials to map a plan's "
         "requirements onto real catalog products. 4) lookup_product for exact "
         "model pricing/finishes. 5) verify_facts on every model number and "
         "price before you answer.\n"
-        "FOUR RULES THAT PREVENT WRONG ANSWERS:\n"
+        "ALSO: lookup_crossover for another manufacturer's equivalent of a model; "
+        "list_price_overrides / record_price_override for prices an estimator has "
+        "confirmed by hand, which outrank anything parsed here.\n"
+        "FIVE RULES THAT PREVENT WRONG ANSWERS:\n"
+        "0. Read `price_basis` on every price. It says whether the number is a LIST "
+        "price or already a NET cost. `already_net: true` means a multiplier has "
+        "ALREADY been applied - applying the vendor's multiplier again under-prices "
+        "the job. Quote the basis with the number, every time.\n"
         "1. Coverage first. A catalog covers the divisions in `divisions`, and "
         "NOTHING ELSE. A door-hardware book has no toilet partitions in it. If the "
         "asked-for division is absent, say so - do not substitute a product from "
         "another division and do not supply one from your own product knowledge.\n"
-        "2. Prices are LIST prices. Net/actual cost needs the vendor's multiplier "
-        "sheet, which is a separate document. Never present a list price as a "
-        "cost, and never compute a total without saying it is at list.\n"
+        "2. A PDF price book prints LIST prices, and net cost needs the vendor's "
+        "multiplier sheet - a separate document. A distributor spreadsheet may print "
+        "list, dealer, commercial, MAP and net side by side; those are different "
+        "numbers and `price_basis` says which one you have. Never present a list price "
+        "as a cost, and never total without saying which basis you used.\n"
         "3. Enumerate. list_division returns every model it found; report all of "
         "them, and report the `unclassified` count so the caller knows the tail "
         "exists. Never claim a division is complete when pages went unparsed - "
@@ -127,16 +137,38 @@ def _coverage(con, cid, pages):
 
 
 def _prod_json(r):
+    basis = (r[9] if len(r) > 9 else None) or "list"
     return {"model": r[0], "description": r[1], "size": r[2], "finish": r[3],
-            "list_price": r[4], "pack_qty": r[5], "disc_code": r[6],
+            "price": r[4],
+            "price_basis": basis,
+            "already_net": basis in NET_BASES,
+            # Kept alongside `price` so nothing that already reads this key breaks. For
+            # a PDF price book the two are identical and always were; only spreadsheet
+            # rows can carry a non-list basis, and `price_basis` is what says so.
+            "list_price": r[4],
+            "pack_qty": r[5], "disc_code": r[6],
             "page": r[7], "section": r[8]}
 
 
 PROD_COLS = ("model, description, size, finish, list_price, qty, disc_code, "
-             "page, section")
+             "page, section, price_basis")
 
-LIST_PRICE_NOTE = ("Prices are LIST. Net cost requires the vendor's multiplier / "
-                   "discount sheet, which is a separate document from this book.")
+# Bases that are already a cost to CBC. Applying a vendor multiplier on top of one of
+# these under-prices the job, which is the single most expensive mistake this index can
+# cause, so every price says which it is.
+NET_BASES = {"net", "dealer_net", "distributor_net", "hamilton_parker_net"}
+
+PRICE_BASIS_NOTE = (
+    "Every price carries a `price_basis` saying WHICH price it is, and `already_net` "
+    "saying whether it is a cost. A PDF price book prints one column and it is LIST: "
+    "net cost needs the vendor's multiplier sheet, a separate document. A distributor "
+    "spreadsheet prints several columns side by side (list / dealer / commercial / map "
+    "/ distributor net / hamilton parker net) and they are NOT interchangeable. Never "
+    "apply a multiplier to a row whose `already_net` is true, and never present a LIST "
+    "price as a cost. Quote the basis alongside the number.")
+
+# Kept under the old name so nothing that referenced it silently loses the warning.
+LIST_PRICE_NOTE = PRICE_BASIS_NOTE
 
 
 @mcp.tool()
@@ -311,34 +343,44 @@ def list_division(catalog_id: str, division: str, limit: int = 400) -> str:
         rows = con.execute(q + " ORDER BY csi_section, model, size, finish",
                            args).fetchall()
 
+        # PROD_COLS now ends with price_basis, so the trailing columns sit at 10-12.
+        BASIS, CSI, CSI_NAME, CAT = 9, 10, 11, 12
         by_model = {}
         for r in rows[:limit * 12]:
-            key = (r[11], r[0])          # same model number can exist in two books
+            key = (r[CAT], r[0])         # same model number can exist in two books
             m = by_model.setdefault(key, {
-                "vendor": vendors.get(r[11], ("?", "?"))[0],
-                "catalog_id": r[11],
-                "model": r[0], "csi_section": f"{r[9]} {r[10]}",
+                "vendor": vendors.get(r[CAT], ("?", "?"))[0],
+                "catalog_id": r[CAT],
+                "model": r[0], "csi_section": f"{r[CSI]} {r[CSI_NAME]}",
                 "description": r[1], "section": r[8], "pages": set(),
-                "sizes": set(), "finishes": set(), "price_range": [r[4], r[4]],
+                "sizes": set(), "finishes": set(), "ranges": {},
                 "pack_qty": r[5]})
             m["pages"].add(r[7])
             if r[2]:
                 m["sizes"].add(r[2])
             if r[3]:
                 m["finishes"].add(r[3])
-            m["price_range"][0] = min(m["price_range"][0], r[4])
-            m["price_range"][1] = max(m["price_range"][1], r[4])
+            # Per basis, never pooled. A model with list 13.50 and a distributor net of
+            # 11.79 does not have a price "range" of 11.79-13.50 - those are two
+            # different kinds of number and one of them is a cost.
+            basis = r[BASIS] or "list"
+            lo, hi = m["ranges"].get(basis, (r[4], r[4]))
+            m["ranges"][basis] = (min(lo, r[4]), max(hi, r[4]))
+
+        def span(pair):
+            lo, hi = pair
+            return f"${lo:,.2f}" if lo == hi else f"${lo:,.2f}-${hi:,.2f}"
 
         out = []
         for m in list(by_model.values())[:limit]:
-            out.append({**m, "pages": sorted(m["pages"]),
-                        "sizes": sorted(m["sizes"]),
-                        "finishes": sorted(m["finishes"]),
-                        "list_price_range": (f"${m['price_range'][0]:.2f}"
-                                             if m["price_range"][0] == m["price_range"][1]
-                                             else f"${m['price_range'][0]:.2f}-"
-                                                  f"${m['price_range'][1]:.2f}")})
-            out[-1].pop("price_range")
+            entry = {**m, "pages": sorted(m["pages"]),
+                     "sizes": sorted(m["sizes"]),
+                     "finishes": sorted(m["finishes"]),
+                     "prices": {b: span(v) for b, v in sorted(m["ranges"].items())}}
+            entry["price_bases"] = sorted(m["ranges"])
+            entry["already_net"] = sorted(set(m["ranges"]) & NET_BASES)
+            entry.pop("ranges")
+            out.append(entry)
 
         scope = (f"catalog {catalog_id}" if catalog_id
                  else f"all {len(vendors)} indexed catalogs")
@@ -433,7 +475,12 @@ def lookup_product(catalog_id: str, model: str) -> str:
         items = con.execute(
             "SELECT name, item_no, page FROM item_numbers WHERE catalog_id=? AND "
             "UPPER(name) LIKE ? LIMIT 60", (catalog_id, m + "%")).fetchall()
-        if not rows and not items:
+        folder = con.execute(
+            "SELECT COALESCE(folder, vendor) FROM catalogs WHERE catalog_id=?",
+            (catalog_id,)).fetchone()[0]
+        verified = ov.for_model(folder, model)
+
+        if not rows and not items and not verified:
             near = con.execute(
                 "SELECT DISTINCT model FROM products WHERE catalog_id=? AND "
                 "model LIKE ? LIMIT 25", (catalog_id, "%" + m + "%")).fetchall()
@@ -444,13 +491,29 @@ def lookup_product(catalog_id: str, model: str) -> str:
                            "Check similar_models, or search_catalog for the "
                            "description instead of the model."),
             }, indent=2)
-        return json.dumps({
+
+        payload = {
             "model": model,
             "price_rows": [_prod_json(r) for r in rows],
             "order_item_numbers": [
                 {"name": n, "item_no": i, "page": p} for n, i, p in items],
-            "note": LIST_PRICE_NOTE,
-        }, indent=2)
+            "note": PRICE_BASIS_NOTE,
+        }
+        if verified:
+            # First key in the payload, and said plainly: a person checked this number
+            # against the book and the parser did not.
+            payload = {
+                "model": model,
+                "verified_prices": verified,
+                "action": (
+                    "USE `verified_prices`. An estimator confirmed these against the "
+                    "source document; the rows in `price_rows` came from the parser and "
+                    "are superseded wherever the two disagree. Cite the override's "
+                    "`source`, and honour its `price_basis` exactly as you would a "
+                    "parsed row."),
+                **payload,
+            }
+        return json.dumps(payload, indent=2)
     finally:
         con.close()
 
@@ -528,7 +591,8 @@ def match_materials(catalog_id: str, requirements: list[str], per_item: int = 5)
                 return con.execute(
                     "SELECT p.model, p.description, p.size, p.finish, p.list_price, "
                     "p.qty, p.disc_code, p.page, p.section, p.csi_section, p.csi_name, "
-                    f"COUNT(*), MAX({score}) AS score, p.catalog_id FROM products p "
+                    f"COUNT(*), MAX({score}) AS score, p.catalog_id, p.price_basis "
+                    "FROM products p "
                     "WHERE p.model IS NOT NULL" + sq
                     + where.replace("catalog_id", "p.catalog_id") +
                     f" GROUP BY p.catalog_id, p.model HAVING MAX({gate}) >= ? "
@@ -551,7 +615,10 @@ def match_materials(catalog_id: str, requirements: list[str], per_item: int = 5)
                 "vendor": vendors.get(h[13], ("?", "?"))[0],
                 "catalog_id": h[13],
                 "model": h[0], "description": h[1][:220], "example_size": h[2],
-                "example_finish": h[3], "example_list_price": h[4],
+                "example_finish": h[3], "example_price": h[4],
+                "example_list_price": h[4],          # kept for existing consumers
+                "example_price_basis": h[14] if len(h) > 14 else "list",
+                "already_net": (h[14] if len(h) > 14 else "list") in NET_BASES,
                 "pack_qty": h[5], "page": h[7], "section": h[8],
                 "csi_section": f"{h[9]} {h[10]}" if h[9] else None,
                 "price_rows_for_model": h[11],
@@ -672,11 +739,22 @@ def get_page(catalog_id: str, page: int) -> str:
         prods = con.execute(
             f"SELECT {PROD_COLS} FROM products WHERE catalog_id=? AND page=?",
             (catalog_id, page)).fetchall()
-        doc = fitz.open(path)
-        try:
-            rows = ix.page_rows(doc[page - 1])
-        finally:
-            doc.close()
+
+        # index_catalog already stored exactly these rows as page_text.body. Reopening
+        # and re-parsing the PDF to rebuild them cost a full page extraction per call.
+        # The PDF is still the fallback for a page indexed before this was written, or
+        # one whose text was empty at index time.
+        stored = con.execute(
+            "SELECT body FROM page_text WHERE catalog_id=? AND page=? LIMIT 1",
+            (catalog_id, page)).fetchone()
+        if stored and stored[0]:
+            rows = [line for line in stored[0].split("\n") if line.strip()]
+        else:
+            doc = fitz.open(path)
+            try:
+                rows = ix.page_rows(doc[page - 1])
+            finally:
+                doc.close()
         return json.dumps({
             "page": page, "section": meta[0], "subsection": meta[1],
             "printed_page_no": meta[2],
@@ -704,9 +782,10 @@ def verify_facts(catalog_id: str, claims: list[str]) -> str:
     con = _con()
     try:
         _cat(con, catalog_id)
-        blobs = [(p, s, ix.norm(b)) for p, s, b in con.execute(
-            "SELECT page, section, body FROM page_text WHERE catalog_id=?",
-            (catalog_id,))]
+        # Normalized once per catalog and cached across calls, rather than re-normalized
+        # on every invocation of the tool the instructions say to run before reporting
+        # anything. The scan itself stays exhaustive - see the note on _NORM_CACHE.
+        blobs = ix.normalized_pages(con, catalog_id)
         results = []
         for claim in claims:
             q = ix.norm(claim)
@@ -736,6 +815,145 @@ def verify_facts(catalog_id: str, claims: list[str]) -> str:
                            "unverified": bad, "results": results}, indent=2)
     finally:
         con.close()
+
+
+@mcp.tool()
+def lookup_crossover(model: str, vendor: str = "") -> str:
+    """Other manufacturers' equivalents for a model, from published crossover tables.
+
+    Answers "the drawings specify a Bobrick B-2888 and we buy Gamco - what is the
+    equivalent?". The mapping comes from the vendor's own printed crossover sheet.
+
+    A crossover is NOT an approved substitution. It says two manufacturers consider
+    these parts comparable; it does not say the specification allows a swap, that the
+    sizes and finishes match, or that the GC has agreed. Present the specified product
+    and the proposed equal side by side and let the estimator decide, and always confirm
+    the equivalent actually exists with `lookup_product` before quoting it.
+    """
+    con = _con()
+    try:
+        needle = " ".join(model.strip().upper().split())
+        if not needle:
+            return json.dumps({"error": "model is required"})
+        classes = [c for (c,) in con.execute(
+            "SELECT DISTINCT class_id FROM crossovers WHERE UPPER(model)=?", (needle,))]
+        if not classes and len(needle) > 3:
+            classes = [c for (c,) in con.execute(
+                "SELECT DISTINCT class_id FROM crossovers WHERE UPPER(model) LIKE ? "
+                "LIMIT 25", (f"%{needle}%",))]
+        if not classes:
+            return json.dumps({
+                "model": model, "found": False, "equivalents": [],
+                "action": ("No crossover table on this shelf maps that model. Do not "
+                           "invent an equivalent - use match_materials to find a "
+                           "comparable product by description, and raise it as a "
+                           "substitution for approval."),
+            }, indent=2)
+
+        placeholders = ", ".join("?" for _ in classes)
+        rows = con.execute(
+            f"SELECT class_id, vendor, model, sheet FROM crossovers "
+            f"WHERE class_id IN ({placeholders}) ORDER BY class_id, vendor", classes)
+        grouped = {}
+        for class_id, vend, mdl, sheet in rows:
+            grouped.setdefault(class_id, {"source_sheet": sheet, "members": []})
+            grouped[class_id]["members"].append({"vendor": vend, "model": mdl})
+
+        out = []
+        for group in grouped.values():
+            members = group["members"]
+            asked = [m for m in members if m["model"].upper() == needle]
+            equivalents = [m for m in members if m["model"].upper() != needle]
+            if vendor:
+                want = " ".join(vendor.strip().upper().split())
+                equivalents = [m for m in equivalents if want in m["vendor"]]
+            if equivalents:
+                out.append({"matched": asked or members[:1],
+                            "equivalents": equivalents,
+                            "source_sheet": group["source_sheet"]})
+
+        return json.dumps({
+            "model": model,
+            "found": bool(out),
+            "crossovers": out,
+            "note": ("A published crossover, not an approved substitution. Confirm the "
+                     "equivalent with lookup_product, check size, finish and rating "
+                     "against the drawing, and present it as a proposed equal."),
+        }, indent=2, default=str)
+    finally:
+        con.close()
+
+
+@mcp.tool()
+def record_price_override(
+    vendor: str,
+    model: str,
+    price: float,
+    price_basis: str,
+    source: str,
+    size: str = "",
+    finish: str = "",
+    confirmed_by: str = "",
+    effective_date: str = "",
+    note: str = "",
+) -> str:
+    """Record a price an estimator has CONFIRMED against the source document.
+
+    Use this when a parsed price is wrong, or when a price lives somewhere the parser
+    cannot read (a finish matrix, a per-foot formula, a vendor quote, a spreadsheet
+    column nobody indexed). From then on `lookup_product` returns it ahead of the
+    parsed rows for that model.
+
+    `price_basis` must say WHAT the number is - `list`, `net`, `distributor_net`,
+    `dealer`, `hamilton_parker_net`. A net basis is already a cost and no multiplier
+    may be applied to it.
+
+    `source` is required and is the audit trail: name the page, the quote number or the
+    person. Do not record a price you have not verified - this file outranks the
+    catalog, so a wrong entry here is worse than a wrong parse.
+
+    Leave `size` / `finish` empty to cover every variant of the model.
+    """
+    try:
+        saved = ov.record({
+            "vendor": vendor, "model": model, "price": price,
+            "price_basis": price_basis, "source": source, "size": size,
+            "finish": finish, "confirmed_by": confirmed_by,
+            "effective_date": effective_date, "note": note,
+        })
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)}, indent=2)
+    return json.dumps({
+        "recorded": saved,
+        "file": ov.path(),
+        "note": ("Stored in memory/, not in the rebuildable index cache, so it survives "
+                 "a re-index. It now outranks the parsed rows for this model."),
+    }, indent=2)
+
+
+@mcp.tool()
+def list_price_overrides(vendor: str = "", model: str = "") -> str:
+    """Every estimator-verified price on file, newest first. Filter by vendor or model.
+
+    Read this before trusting a parsed price for a vendor whose book is known to parse
+    badly - and before recording a new override, to see whether one already exists.
+    """
+    # Same ordering rule as `for_model`: newest first, with file position breaking a
+    # timestamp tie, so the listing agrees with what a lookup would actually use.
+    rows = list(enumerate(ov.load()))
+    if vendor:
+        rows = [(i, r) for i, r in rows if ov._norm(r.get("vendor")) == ov._norm(vendor)]
+    if model:
+        rows = [(i, r) for i, r in rows if ov._norm(r.get("model")) == ov._norm(model)]
+    rows = [r for _, r in sorted(
+        rows, key=lambda pair: (pair[1].get("recorded_at") or "", pair[0]), reverse=True)]
+    return json.dumps({
+        "file": ov.path(),
+        "count": len(rows),
+        "overrides": rows,
+        "note": ("These outrank the parsed catalog rows. Where two entries cover the "
+                 "same model, the most recently recorded one wins."),
+    }, indent=2)
 
 
 def main():

@@ -1,31 +1,35 @@
 {
   "$schema": "https://antigravity.google/schemas/mcp_config.json",
+  "//": "Paths are absolute to THIS workspace root (W:\\Projects\\cbc-antigravity). They previously pointed at c:\\Parth Panchal\\mcp-servers\\CBC - the superseded standalone clones .agent/mcp/README.md documents as diverged and unmaintained - so all three servers loaded stale code or failed to spawn outright. If the workspace moves, restamp every path below; the container does the same rewrite on every boot via docker/mcp_config.linux.json.",
+  "//PYMUPDF_MESSAGE": "Load-bearing for the two servers that `import fitz`. PyMuPDF prints its deprecation notice to STDOUT, which corrupts the MCP stdio JSON-RPC stream and the server then fails to load with 'connection closed'.",
   "mcpServers": {
     "building-plan-intelligence": {
-      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "command": "W:\\Projects\\cbc-antigravity\\.venv\\Scripts\\python.exe",
       "args": ["-m", "bpi.server"],
-      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "cwd": "W:\\Projects\\cbc-antigravity",
       "env": {
-        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\building-plan-intelligence",
-        "BPI_CACHE": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\cache\\building-plan-intelligence"
+        "PYTHONPATH": "W:\\Projects\\cbc-antigravity\\.agent\\mcp\\building-plan-intelligence",
+        "BPI_CACHE": "W:\\Projects\\cbc-antigravity\\.agent\\cache\\building-plan-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
       }
     },
     "catalog-intelligence": {
-      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "command": "W:\\Projects\\cbc-antigravity\\.venv\\Scripts\\python.exe",
       "args": ["-m", "catint.server"],
-      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "cwd": "W:\\Projects\\cbc-antigravity",
       "env": {
-        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\catalog-intelligence",
-        "CATINT_CACHE": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\cache\\catalog-intelligence"
+        "PYTHONPATH": "W:\\Projects\\cbc-antigravity\\.agent\\mcp\\catalog-intelligence",
+        "CATINT_CACHE": "W:\\Projects\\cbc-antigravity\\.agent\\cache\\catalog-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
       }
     },
     "cbc-estimating-engine": {
-      "command": "c:\\Parth Panchal\\mcp-servers\\CBC\\.venv\\Scripts\\python.exe",
+      "command": "W:\\Projects\\cbc-antigravity\\.venv\\Scripts\\python.exe",
       "args": ["-m", "cbc_engine.server"],
-      "cwd": "c:\\Parth Panchal\\mcp-servers\\CBC",
+      "cwd": "W:\\Projects\\cbc-antigravity",
       "env": {
-        "PYTHONPATH": "c:\\Parth Panchal\\mcp-servers\\CBC\\.agent\\mcp\\cbc-estimating-engine",
-        "CBC_WORKSPACE_ROOT": "c:\\Parth Panchal\\mcp-servers\\CBC"
+        "PYTHONPATH": "W:\\Projects\\cbc-antigravity\\.agent\\mcp\\cbc-estimating-engine",
+        "CBC_WORKSPACE_ROOT": "W:\\Projects\\cbc-antigravity"
       }
     }
   }

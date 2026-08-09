@@ -20,31 +20,40 @@ export function UploadDrop({
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
+  /**
+   * Each file is independent: one rejected file (wrong type, too large) must not hide
+   * the estimates that already started for the others. Previously a mid-batch failure
+   * skipped `onUploaded` entirely, so those runs stayed invisible until a manual reload.
+   */
   const upload = async (files: FileList | null) => {
     if (!files?.length || busy) return;
     setBusy(true);
+    let uploaded = 0;
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append('file', file);
-        const response = await fetch(`/api/projects/${projectId}/files`, {
-          method: 'POST',
-          body: form,
-        });
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error || `Upload failed (${response.status})`);
+        try {
+          const response = await fetch(`/api/projects/${projectId}/files`, {
+            method: 'POST',
+            body: form,
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string } | null;
+            throw new Error(body?.error || `Upload failed (${response.status})`);
+          }
+          uploaded += 1;
+          toast.success(`Uploaded ${file.name}`, { description: 'Estimate started.' });
+        } catch (err) {
+          toast.error(`Could not upload ${file.name}`, {
+            description: err instanceof Error ? err.message : String(err),
+          });
         }
-        toast.success(`Uploaded ${file.name}`, { description: 'Estimate started.' });
       }
-      onUploaded();
-    } catch (err) {
-      toast.error('Upload failed', {
-        description: err instanceof Error ? err.message : String(err),
-      });
     } finally {
       setBusy(false);
       if (input.current) input.current.value = '';
+      if (uploaded) onUploaded();
     }
   };
 
@@ -61,7 +70,7 @@ export function UploadDrop({
         void upload(e.dataTransfer.files);
       }}
       className={cn(
-        'border-rule border border-dashed px-4 py-8 text-center transition-colors',
+        'border-rule bg-panel rounded-lg border border-dashed px-4 py-8 text-center transition-colors',
         over && 'border-signal bg-signal-wash',
       )}
     >

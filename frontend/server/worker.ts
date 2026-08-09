@@ -11,6 +11,7 @@ import { getRunBuffer, toFrames } from './events.ts';
 import { query } from './db.ts';
 import { buildQuotationWorkbook } from '../lib/xlsx/quotation.ts';
 import { coerceQuotation, extractJson } from '../lib/xlsx/coerce.ts';
+import { persistQuotationDraft } from '../lib/quote-draft.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(here, '..', 'lib', 'xlsx', 'schema.json');
@@ -41,11 +42,15 @@ function estimatePrompt(run: ClaimedRun): string {
       ? `The document to estimate is \`${target}\`. Scope Phase 0 intake to that file only.`
       : `Estimate every document under \`${relative(WORKSPACE_ROOT, run.folder_path).replace(/\\/g, '/')}\`.`,
     '',
-    'When the estimate is complete, return the final answer as a single JSON object',
-    'conforming to the supplied schema. Every line must carry its cost source and its',
-    'plan/catalog citation - the audit gate rejects lines that do not. Do not invent a',
-    'price, a model number, a multiplier or an adder value; leave the line unpriced and',
-    'raise it in `rfis` instead.',
+    'When the estimate is complete, run estimate-quality-gate over the whole package.',
+    'Reject specialist payloads that are missing required fields (verified_against_*,',
+    'cost_source, citations) rather than filling the gaps yourself — leave those lines',
+    'unpriced and raise them in `rfis` with [not stated], [not indexed] or [not carried].',
+    '',
+    'Return the final answer as a single JSON object conforming to the supplied schema.',
+    'Every line must carry its cost source and its plan/catalog citation - the audit gate',
+    'rejects lines that do not. Do not invent a price, a model number, a multiplier or an',
+    'adder value. Do not replace the JSON with free-form proposal prose.',
   ].join('\n');
 }
 
@@ -93,6 +98,7 @@ async function processRun(run: ClaimedRun): Promise<void> {
 
     const quotation = coerceQuotation(extractJson(response), run.project_name);
     const outputPath = join(run.folder_path, `CBC_Material_Quotation_${run.slug}.xlsx`);
+    await persistQuotationDraft(run.id, run.project_id, quotation);
     await buildQuotationWorkbook(quotation).xlsx.writeFile(outputPath);
 
     await query(
@@ -112,6 +118,47 @@ async function processRun(run: ClaimedRun): Promise<void> {
     ).catch(() => {});
     if (!buffer.finished) buffer.push({ kind: 'error', message });
     console.error(`[worker] run ${run.id} failed:`, message);
+  }
+}
+
+/** `30m` / `90s` / `2h` as milliseconds. Anything unparseable falls back to 30 minutes. */
+function durationMs(value: string): number {
+  const match = /^(\d+)\s*([smh])?$/i.exec(value.trim());
+  if (!match) return 30 * 60_000;
+  const scale = { s: 1_000, m: 60_000, h: 3_600_000 }[match[2]?.toLowerCase() ?? 'm']!;
+  return Number(match[1]) * scale;
+}
+
+/**
+ * Fails runs left `running` by a gateway that went away.
+ *
+ * `claimRun` only ever looks at `pending`, and nothing else resets the status, so a
+ * gateway restart mid-estimate left the row `running` forever - the agy child died with
+ * the process and the browser sat on a feed that never produced another frame.
+ *
+ * The age guard is what makes this safe to run with more than one replica: a run a
+ * sibling is still working on is younger than agy's own `--print-timeout`, so only runs
+ * that cannot still be alive are touched. They are failed rather than re-queued - an
+ * estimate is a 30-minute paid run, and restarting one silently is not the gateway's
+ * decision to make.
+ */
+async function failOrphanedRuns(): Promise<void> {
+  const staleMs = durationMs(process.env.AGY_TIMEOUT || '30m') + 5 * 60_000;
+  try {
+    const rows = await query<{ id: string }>(
+      `UPDATE workflow_runs
+          SET status = 'failed', finished_at = now(),
+              error = 'The agent service restarted while this estimate was running. Re-run it.'
+        WHERE status = 'running'
+          AND started_at < now() - ($1 || ' milliseconds')::interval
+        RETURNING id`,
+      [String(staleMs)],
+    );
+    if (rows.length) {
+      console.warn(`[worker] failed ${rows.length} orphaned run(s):`, rows.map((r) => r.id).join(', '));
+    }
+  } catch (err) {
+    console.error('[worker] orphan sweep failed:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -143,5 +190,5 @@ export function startWorker(): void {
   if (timer) return;
   timer = setInterval(() => void tick(), POLL_MS);
   timer.unref();
-  void tick();
+  void failOrphanedRuns().then(tick);
 }

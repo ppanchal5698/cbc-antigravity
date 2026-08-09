@@ -139,7 +139,7 @@ export function ProductTable({
             <tbody>
               {rows.map((row, i) => (
                 <tr key={`${row.model}-${row.size}-${row.finish}-${i}`}>
-                  <td className="code font-medium">{row.model}</td>
+                  <td className="code font-medium">{row.model || '—'}</td>
                   <td className="max-w-lg min-w-[16rem]">
                     <span className="line-clamp-2">{row.description || '—'}</span>
                     {row.section ? (

@@ -1,5 +1,12 @@
 import { basename } from 'node:path';
-import { CATALOG_DB, ftsQuery, invalidateIndex, openIndex, queryIndex } from './workspace-db';
+import {
+  CATALOG_DB,
+  ftsQuery,
+  invalidateIndex,
+  memoizeOnIndex,
+  openIndex,
+  queryIndex,
+} from './workspace-db';
 
 /**
  * The vendor shelf, read straight from catalog-intelligence's index.
@@ -150,58 +157,74 @@ type BookRow = {
   models: number;
 };
 
+/**
+ * Every indexed book with its counts.
+ *
+ * Two queries, both grouped, and the result is cached until the index file changes.
+ * This was three correlated subqueries per catalog plus a full products GROUP BY, run
+ * from `listVendors` / `getVendor` / `getShelfStats` - so every page render and every
+ * keystroke in the command palette re-aggregated the whole products table.
+ */
 export function listBooks(): CatalogBook[] {
-  const rows = queryIndex<BookRow>(
-    CATALOG_DB,
-    `SELECT c.catalog_id, c.vendor, c.folder, c.path, c.effective, c.multiplier, c.pages,
-            (SELECT COUNT(*)              FROM products p WHERE p.catalog_id = c.catalog_id) AS price_rows,
-            (SELECT COUNT(DISTINCT page)  FROM products p WHERE p.catalog_id = c.catalog_id) AS pages_parsed,
-            (SELECT COUNT(DISTINCT model) FROM products p WHERE p.catalog_id = c.catalog_id) AS models
-       FROM catalogs c
-      ORDER BY c.folder, c.path`,
-  );
+  return memoizeOnIndex(CATALOG_DB, 'books', () => {
+    const rows = queryIndex<BookRow>(
+      CATALOG_DB,
+      `SELECT c.catalog_id, c.vendor, c.folder, c.path, c.effective, c.multiplier, c.pages,
+              COUNT(p.catalog_id)        AS price_rows,
+              COUNT(DISTINCT p.page)     AS pages_parsed,
+              COUNT(DISTINCT p.model)    AS models
+         FROM catalogs c
+         LEFT JOIN products p ON p.catalog_id = c.catalog_id
+        GROUP BY c.catalog_id
+        ORDER BY c.folder, c.path`,
+    );
 
-  const sections = queryIndex<{
-    catalog_id: string;
-    csi_section: string;
-    csi_name: string | null;
-    models: number;
-  }>(
-    CATALOG_DB,
-    `SELECT catalog_id, csi_section, csi_name, COUNT(DISTINCT model) AS models
-       FROM products
-      WHERE csi_section IS NOT NULL AND csi_section <> ''
-      GROUP BY catalog_id, csi_section
-      ORDER BY csi_section`,
-  );
+    const sections = queryIndex<{
+      catalog_id: string;
+      csi_section: string;
+      csi_name: string | null;
+      models: number;
+    }>(
+      CATALOG_DB,
+      `SELECT catalog_id, csi_section, csi_name, COUNT(DISTINCT model) AS models
+         FROM products
+        WHERE csi_section IS NOT NULL AND csi_section <> ''
+        GROUP BY catalog_id, csi_section
+        ORDER BY csi_section`,
+    );
 
-  const byCatalog = new Map<string, CatalogBook['csiSections']>();
-  for (const row of sections) {
-    const list = byCatalog.get(row.catalog_id) ?? [];
-    list.push({ section: row.csi_section, name: row.csi_name, models: row.models });
-    byCatalog.set(row.catalog_id, list);
-  }
+    const byCatalog = new Map<string, CatalogBook['csiSections']>();
+    for (const row of sections) {
+      const list = byCatalog.get(row.catalog_id) ?? [];
+      list.push({ section: row.csi_section, name: row.csi_name, models: row.models });
+      byCatalog.set(row.catalog_id, list);
+    }
 
-  return rows.map((row) => ({
-    catalogId: row.catalog_id,
-    vendor: row.vendor,
-    folder: row.folder || row.vendor,
-    path: row.path,
-    file: basename(row.path),
-    effective: row.effective,
-    multiplierInFilename: row.multiplier,
-    pages: row.pages,
-    pagesParsed: row.pages_parsed,
-    priceRows: row.price_rows,
-    models: row.models,
-    coverage: deriveCoverage(row.pages_parsed, row.pages),
-    csiSections: byCatalog.get(row.catalog_id) ?? [],
-  }));
+    return rows.map((row) => ({
+      catalogId: row.catalog_id,
+      vendor: row.vendor,
+      folder: row.folder || row.vendor,
+      path: row.path,
+      file: basename(row.path),
+      effective: row.effective,
+      multiplierInFilename: row.multiplier,
+      pages: row.pages,
+      pagesParsed: row.pages_parsed,
+      priceRows: row.price_rows,
+      models: row.models,
+      coverage: deriveCoverage(row.pages_parsed, row.pages),
+      csiSections: byCatalog.get(row.catalog_id) ?? [],
+    }));
+  });
 }
 
 const COVERAGE_RANK: Record<Coverage, number> = { text_only: 0, partial: 1, structured: 2 };
 
 export function listVendors(): Vendor[] {
+  return memoizeOnIndex(CATALOG_DB, 'vendors', buildVendors);
+}
+
+function buildVendors(): Vendor[] {
   const grouped = new Map<string, Vendor>();
 
   for (const book of listBooks()) {
@@ -296,7 +319,7 @@ export function listProducts(query: ProductQuery): { rows: ProductRow[]; total: 
             p.page, p.section, p.division, p.csi_section, p.csi_name
        FROM products p JOIN catalogs c ON c.catalog_id = p.catalog_id
        ${clause}
-      ORDER BY p.model, p.size, p.finish
+      ORDER BY (p.model IS NULL OR p.model = ''), p.model, p.size, p.finish
       LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   );
@@ -332,6 +355,8 @@ export function divisionsForVendor(folder: string): { division: string; section:
   );
 }
 
+export type BookRef = { catalogId: string; file: string };
+
 export type CatalogPage = {
   page: number;
   section: string | null;
@@ -341,22 +366,59 @@ export type CatalogPage = {
   products: ProductRow[];
   /** Spatially ordered text; catint marks column breaks with a double pipe. */
   textRows: string[];
+  /** Which book this page came from. A page number alone never identifies one. */
+  book: BookRef;
+  /** The vendor's other books that also have a page this deep - i.e. the ambiguity. */
+  alsoIn: BookRef[];
 };
+
+const ref = (book: CatalogBook): BookRef => ({ catalogId: book.catalogId, file: book.file });
+
+/**
+ * Best book for a free-text hint ("#18", "Accessories", "2020 price list"), or null.
+ * Scores on how many of the hint's tokens appear in the filename.
+ */
+function matchBook(books: CatalogBook[], hint: string): CatalogBook | null {
+  const tokens = (hint.toUpperCase().match(/[A-Z0-9#.]{2,}/g) ?? []).filter(
+    (token) => token !== 'PAGE' && token !== 'PG',
+  );
+  let best: CatalogBook | null = null;
+  let bestScore = 0;
+  for (const book of books) {
+    const file = book.file.toUpperCase();
+    const score = tokens.filter((token) => file.includes(token)).length;
+    if (score > bestScore) {
+      best = book;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
 
 /**
  * One page of a price book. This is what a `[catalog] Hager p.18` citation
  * resolves to, so it reads from the index rather than reopening the PDF -
  * no PyMuPDF, no MCP round trip.
  */
-export function getCatalogPage(folder: string, page: number): CatalogPage | null {
+export function getCatalogPage(
+  folder: string,
+  page: number,
+  bookHint?: string,
+): CatalogPage | null {
   const vendor = getVendor(folder);
   if (!vendor) return null;
 
+  // Only books long enough to have this page are candidates. Picking the first book
+  // that merely had price rows meant a `[catalog] ROCKWOOD p.212` citation - and
+  // ROCKWOOD has four books - opened whichever one happened to be long enough, showing
+  // a real page from the wrong catalog under the vendor's name.
+  const candidates = vendor.books.filter((b) => b.pages >= page);
+  if (!candidates.length) return null;
+
   const book =
-    vendor.books.find((b) => b.pages >= page && b.priceRows > 0) ??
-    vendor.books.find((b) => b.pages >= page) ??
-    vendor.books[0];
-  if (!book) return null;
+    (bookHint ? matchBook(candidates, bookHint) : null) ??
+    candidates.find((b) => b.priceRows > 0) ??
+    candidates[0]!;
 
   const meta = queryIndex<{ section: string | null; subsection: string | null; cat_page: string | null }>(
     CATALOG_DB,
@@ -393,6 +455,8 @@ export function getCatalogPage(folder: string, page: number): CatalogPage | null
     section: meta?.section ?? null,
     subsection: meta?.subsection ?? null,
     printedPageNo: meta?.cat_page ?? null,
+    book: ref(book),
+    alsoIn: candidates.filter((b) => b.catalogId !== book.catalogId).map(ref),
     textRows: body ? body.split('\n').filter((line) => line.trim()) : [],
     products: products.map((row) => ({
       vendor: book.vendor,

@@ -33,8 +33,29 @@ function strList(value: unknown): string[] {
   return value.map((item) => str(item)).filter(Boolean);
 }
 
+function confidence(value: unknown): QuotationLine['confidence'] {
+  const v = str(value).toUpperCase();
+  if (v === 'HIGH' || v === 'MEDIUM' || v === 'LOW') return v;
+  return null;
+}
+
+function pricingStatus(value: unknown): QuotationLine['pricingStatus'] {
+  const v = str(value).toLowerCase();
+  if (v === 'priced' || v === 'manual_entry_required' || v === 'awaiting_vendor_rfq') return v;
+  return null;
+}
+
+function priceFreshness(value: unknown): QuotationLine['priceFreshness'] {
+  const v = str(value).toLowerCase();
+  if (v === 'fresh' || v === 'review' || v === 'stale') return v;
+  return null;
+}
+
 function toLine(raw: unknown): QuotationLine {
   const source = (raw ?? {}) as Record<string, unknown>;
+  const unitCost = source.unitCost === undefined || source.unitCost === null ? null : num(source.unitCost);
+  const marginRate =
+    source.marginRate === undefined || source.marginRate === null ? null : num(source.marginRate);
   return {
     tag: str(source.tag),
     room: str(source.room),
@@ -44,6 +65,12 @@ function toLine(raw: unknown): QuotationLine {
     unitSale: num(source.unitSale),
     costBasis: str(source.costBasis, 'not_specified'),
     citations: str(source.citations, '[not stated]'),
+    confidence: confidence(source.confidence),
+    pricingStatus: pricingStatus(source.pricingStatus) ?? 'priced',
+    priceFreshness: priceFreshness(source.priceFreshness),
+    substitutionNotes: str(source.substitutionNotes) || null,
+    unitCost,
+    marginRate,
   };
 }
 

@@ -11,12 +11,15 @@ export function CatalogPageView({ folder, page }: { folder: string; page: Catalo
   return (
     <div className="border-signal/30 bg-signal-wash/40 border-l-2 py-4 pl-4">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="t-label mb-1">Page {page.page}</p>
           <p className="text-[15px] font-medium">{page.section || 'Unsectioned'}</p>
           {page.subsection ? (
             <p className="text-ink-muted text-[12px]">{page.subsection}</p>
           ) : null}
+          {/* Which book, always. A page number on its own does not identify one, and
+              this vendor may have several. */}
+          <p className="text-ink-muted mt-1 text-[12px]">{page.book.file}</p>
         </div>
         <div className="flex items-center gap-3">
           {page.printedPageNo ? (
@@ -30,6 +33,25 @@ export function CatalogPageView({ folder, page }: { folder: string; page: Catalo
           </Link>
         </div>
       </div>
+
+      {page.alsoIn.length ? (
+        <p className="text-alert mb-4 max-w-prose text-[12px] leading-relaxed">
+          This vendor has {page.alsoIn.length + 1} books with a page {page.page}. Showing{' '}
+          <span className="font-medium">{page.book.file}</span>. If the citation meant{' '}
+          {page.alsoIn.map((other, i) => (
+            <span key={other.catalogId}>
+              {i > 0 ? ' or ' : ''}
+              <Link
+                href={`/shelf/${encodeURIComponent(folder)}?page=${page.page}&book=${encodeURIComponent(other.file)}`}
+                className="underline underline-offset-2"
+              >
+                {other.file}
+              </Link>
+            </span>
+          ))}
+          , open that instead — page numbers are per book.
+        </p>
+      ) : null}
 
       {page.products.length ? (
         <div className="scroll-x mb-5">
@@ -46,7 +68,7 @@ export function CatalogPageView({ folder, page }: { folder: string; page: Catalo
             <tbody>
               {page.products.map((row, i) => (
                 <tr key={`${row.model}-${row.finish}-${i}`}>
-                  <td className="code font-medium">{row.model}</td>
+                  <td className="code font-medium">{row.model || '—'}</td>
                   <td className="max-w-lg">{row.description || '—'}</td>
                   <td className="code text-ink-muted">{row.size || '—'}</td>
                   <td className="code">{row.finish || '—'}</td>

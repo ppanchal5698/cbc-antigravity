@@ -5,13 +5,6 @@ import { useRouter } from 'next/navigation';
 import type { SearchHit } from '@/app/api/search/route';
 import { cn } from '@/lib/utils';
 
-/**
- * One input over projects, vendors, price rows, plan sheets and book pages.
- * This is what makes 12,914 product rows and 512 sheets feel small.
- *
- * The dialog's state lives in an inner component that only mounts while open,
- * so closing resets the query and results with no teardown effect.
- */
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
 
@@ -51,7 +44,6 @@ function Dialog({ onClose }: { onClose: () => void }) {
     try {
       const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
       const body = (await response.json()) as { hits?: SearchHit[] };
-      // A slower earlier request must not overwrite a newer one.
       if (id === requestId.current) {
         setHits(body.hits ?? []);
         setActive(0);
@@ -81,7 +73,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 px-4 pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[12vh] backdrop-blur-[1px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -90,7 +82,8 @@ function Dialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Search"
-        className="border-rule-strong bg-paper w-full max-w-2xl border"
+        className="border-rule bg-panel w-full max-w-2xl overflow-hidden rounded-lg border"
+        style={{ boxShadow: 'var(--elev-overlay)' }}
       >
         <input
           autoFocus
@@ -129,14 +122,14 @@ function Dialog({ onClose }: { onClose: () => void }) {
               return (
                 <div key={`${hit.href}-${i}`}>
                   {header ? (
-                    <p className="t-label border-rule bg-sunken border-b px-4 py-1.5">{header}</p>
+                    <p className="t-label bg-sunken border-rule border-b px-4 py-1.5">{header}</p>
                   ) : null}
                   <button
                     type="button"
                     onMouseEnter={() => setActive(i)}
                     onClick={() => go(hit)}
                     className={cn(
-                      'border-rule/60 flex w-full cursor-pointer items-baseline gap-3 border-b px-4 py-2.5 text-left',
+                      'border-rule/60 flex w-full cursor-pointer items-baseline gap-3 border-b px-4 py-2.5 text-left transition-colors',
                       i === active && 'bg-signal-wash',
                     )}
                   >

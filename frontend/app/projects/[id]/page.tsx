@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
+import { catalogIndexReady, listVendors } from '@/lib/catalog';
+import { ScopedChat } from '@/components/chat/scoped-chat';
 import { ProjectDetail } from '@/components/projects/project-detail';
 import { Page, PageHeader, HeaderStat } from '@/components/shell/page-header';
 import type { Project } from '@/types/events';
@@ -18,6 +20,10 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
     project = undefined;
   }
   if (!project) notFound();
+
+  const vendorFolders = catalogIndexReady()
+    ? listVendors().map((vendor) => vendor.folder)
+    : [];
 
   return (
     <Page>
@@ -39,6 +45,15 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
         }
       />
       <ProjectDetail projectId={project.id} />
+      <ScopedChat
+        scope="project"
+        vendorFolders={vendorFolders}
+        context={{
+          projectId: project.id,
+          projectName: project.name,
+          projectFolder: project.folder_path,
+        }}
+      />
     </Page>
   );
 }

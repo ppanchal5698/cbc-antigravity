@@ -79,9 +79,18 @@ export function resolveCitation(
       .find((candidate) => upper.includes(candidate.toUpperCase()));
     if (!folder) return null;
     const page = subject.match(PAGE_PATTERN)?.[1];
-    return page
-      ? `/shelf/${encodeURIComponent(folder)}?page=${page}`
-      : `/shelf/${encodeURIComponent(folder)}`;
+    if (!page) return `/shelf/${encodeURIComponent(folder)}`;
+    // Whatever the citation said besides the vendor and the page - "#18",
+    // "Accessories", "2020 price list". A vendor can have several books and a page
+    // number alone does not say which, so this rides along to pick the right one.
+    const book = subject
+      .replace(new RegExp(folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), ' ')
+      .replace(PAGE_PATTERN, ' ')
+      .trim();
+    const query = book
+      ? `?page=${page}&book=${encodeURIComponent(book)}`
+      : `?page=${page}`;
+    return `/shelf/${encodeURIComponent(folder)}${query}`;
   }
 
   if (tag === 'schedule' || tag === 'drawing' || tag === 'spec') {

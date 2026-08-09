@@ -7,7 +7,8 @@
  * or a Next.js restart cannot orphan an in-flight estimate.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { chatPrompt, runAgy, AgyError, WORKSPACE_ROOT } from './agy.ts';
+import { runAgy, scopedChatPrompt, AgyError, WORKSPACE_ROOT } from './agy.ts';
+import { CHAT_SCOPES, type ChatContext, type ChatScopeId } from '../lib/chat-scopes.ts';
 import { getRunBuffer, sseFrame, toFrames } from './events.ts';
 import { engineReference } from './engine-ref.ts';
 import { initDb, query } from './db.ts';
@@ -71,7 +72,17 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
     json(res, 400, { error: 'message is required' });
     return;
   }
-  const projectId = typeof body.projectId === 'string' ? body.projectId : null;
+  const context = (body.context ?? {}) as ChatContext;
+  const scope: ChatScopeId =
+    typeof body.scope === 'string' && body.scope in CHAT_SCOPES
+      ? (body.scope as ChatScopeId)
+      : 'general';
+  const projectId =
+    typeof body.projectId === 'string'
+      ? body.projectId
+      : typeof context.projectId === 'string'
+        ? context.projectId
+        : null;
   const cwd = typeof body.cwd === 'string' && body.cwd ? body.cwd : WORKSPACE_ROOT;
 
   const session = await resolveSession(
@@ -94,7 +105,7 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   const state = { sawText: false };
   try {
     for await (const raw of runAgy({
-      prompt: chatPrompt(message),
+      prompt: scopedChatPrompt(message, scope, context),
       cwd,
       conversationId: session.conversationId,
       signal: controller.signal,
@@ -121,19 +132,43 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
 }
 
 /** Live status feed for a background document run, with reconnect replay. */
-function handleRunEvents(runId: string, req: IncomingMessage, res: ServerResponse): void {
+async function handleRunEvents(
+  runId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const buffer = getRunBuffer(runId);
   res.writeHead(200, SSE_HEADERS);
 
   const lastEventId = Number(req.headers['last-event-id'] ?? 0);
   const from = Number.isFinite(lastEventId) && lastEventId > 0 ? lastEventId : 0;
-  for (let i = from; i < buffer.frames.length; i += 1) {
-    res.write(sseFrame(i + 1, buffer.frames[i]));
+  for (const { id, frame } of buffer.since(from)) {
+    res.write(sseFrame(id, frame));
   }
 
   if (buffer.finished) {
     res.end();
     return;
+  }
+
+  // An empty buffer for a run the database has already settled means the gateway
+  // restarted and lost the in-memory frames. Without this the browser holds an open
+  // stream that only ever emits pings, and the row spins in the UI forever.
+  if (!buffer.frames.length) {
+    const rows = await query<{ status: string; error: string | null }>(
+      'SELECT status, error FROM workflow_runs WHERE id = $1',
+      [runId],
+    ).catch(() => []);
+    const run = rows[0];
+    if (!run || (run.status !== 'pending' && run.status !== 'running')) {
+      const frame: StreamFrame =
+        run?.status === 'completed'
+          ? { kind: 'status', event: { ts: new Date().toISOString(), type: 'done' } }
+          : { kind: 'error', message: run?.error ?? 'This run is no longer active.' };
+      res.write(sseFrame(buffer.lastId + 1, frame));
+      res.end();
+      return;
+    }
   }
 
   const unsubscribe = buffer.subscribe((id, frame) => {
@@ -174,7 +209,7 @@ const server = createServer((req, res) => {
       }
       const runMatch = path.match(/^\/runs\/([0-9a-fA-F-]{36})\/events$/);
       if (runMatch && req.method === 'GET') {
-        handleRunEvents(runMatch[1], req, res);
+        await handleRunEvents(runMatch[1], req, res);
         return;
       }
       json(res, 404, { error: 'not found' });

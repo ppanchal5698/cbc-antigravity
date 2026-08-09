@@ -1,4 +1,6 @@
 import { CLASS_LABEL, readKnowledgeGraph } from '@/lib/graph';
+import { catalogIndexReady, listVendors } from '@/lib/catalog';
+import { ScopedChat } from '@/components/chat/scoped-chat';
 import { MemoryGraph } from '@/components/memory/graph';
 import { Page, PageHeader, HeaderStat, Section } from '@/components/shell/page-header';
 import { Figure, FigureRow, count } from '@/components/shell/figure';
@@ -8,6 +10,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function MemoryPage() {
   const graph = await readKnowledgeGraph();
+  const vendorFolders = catalogIndexReady()
+    ? listVendors().map((vendor) => vendor.folder)
+    : [];
 
   if (!graph) {
     return (
@@ -35,7 +40,7 @@ export default async function MemoryPage() {
       />
 
       {/* Counts come from the arrays: metadata.total_nodes in the file is stale. */}
-      <FigureRow className="mt-8">
+      <FigureRow className="mt-2">
         <Figure label="Nodes" value={count(graph.nodes.length)} />
         <Figure label="Edges" value={count(graph.edges.length)} />
         <Figure
@@ -59,13 +64,15 @@ export default async function MemoryPage() {
         />
       ) : null}
 
-      <Section label="Graph" aside="click a node">
-        <MemoryGraph nodes={graph.nodes} edges={graph.edges} />
+      <Section label="Graph" panel aside="click a node">
+        <div className="p-3">
+          <MemoryGraph nodes={graph.nodes} edges={graph.edges} />
+        </div>
       </Section>
 
-      <div className="grid gap-10 pt-10 md:grid-cols-2">
-        <div>
-          <h2 className="t-label border-rule mb-3 border-b pb-2">Entity classes</h2>
+      <div className="grid gap-4 pt-8 md:grid-cols-2">
+        <div className="panel overflow-hidden">
+          <h2 className="border-rule border-b px-4 py-2.5 text-[13px] font-semibold">Entity classes</h2>
           <table className="ledger">
             <tbody>
               {graph.byClass.map((entry) => (
@@ -79,8 +86,8 @@ export default async function MemoryPage() {
           </table>
         </div>
 
-        <div>
-          <h2 className="t-label border-rule mb-3 border-b pb-2">Relation types</h2>
+        <div className="panel overflow-hidden">
+          <h2 className="border-rule border-b px-4 py-2.5 text-[13px] font-semibold">Relation types</h2>
           <table className="ledger">
             <tbody>
               {graph.edgeTypes.map((entry) => (
@@ -94,8 +101,8 @@ export default async function MemoryPage() {
         </div>
       </div>
 
-      <Section label="Policy">
-        <dl className="max-w-prose space-y-3 text-[13px] leading-relaxed">
+      <Section label="Policy" panel className="pt-8">
+        <dl className="max-w-prose space-y-3 p-4 text-[13px] leading-relaxed">
           <div>
             <dt className="t-label mb-1">Price</dt>
             <dd className="text-ink-muted">{graph.pricePolicy ?? '—'}</dd>
@@ -106,6 +113,8 @@ export default async function MemoryPage() {
           </div>
         </dl>
       </Section>
+
+      <ScopedChat scope="memory" vendorFolders={vendorFolders} />
     </Page>
   );
 }

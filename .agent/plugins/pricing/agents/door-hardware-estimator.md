@@ -22,6 +22,17 @@ One record per opening, in the shape `estimate-quality-gate` specifies: tag, siz
 wall type, frame throat, fire rating, hardware set **and where the set came from**, finish,
 `verified_against_plan`, and the sheet citation. Incomplete is fine; invented is not.
 
+## Handoff checklist
+
+Required fields per opening (authority:
+[`estimate-quality-gate`](../skills/estimate-quality-gate/SKILL.md) §6):
+`tag`, `door_size`, `width_in`, `height_in`, `handing`, `wall_type`, `frame_throat`,
+`fire_rating`, `hardware_set`, `hardware_set_source`, `finish_code`,
+`verified_against_plan`, `sheet_citation`.
+
+Missing `verified_against_plan` or `sheet_citation` → return the payload incomplete and
+escalate. Never invent a value to complete the shape.
+
 ## The four things that go wrong here
 
 1. **Reading a schedule from flat text.** `read_schedule`, always. Sheet text interleaves

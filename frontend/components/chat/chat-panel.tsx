@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { toast } from 'sonner';
 import { Markdown } from '@/components/chat/markdown';
 import { StatusFeed } from '@/components/chat/status-feed';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { readSse } from '@/lib/sse';
+import {
+  CHAT_SCOPES,
+  sessionKey,
+  type ChatContext,
+  type ChatScopeId,
+} from '@/lib/chat-scopes';
 import { cn } from '@/lib/utils';
 import type { StatusEvent, StreamFrame } from '@/types/events';
 
@@ -19,15 +25,94 @@ type Message = {
   seconds?: number;
 };
 
-const SESSION_KEY = 'cbc.chat.session';
+/** The placeholder says what this surface answers, so the scope is obvious before asking. */
+const PLACEHOLDER: Record<ChatScopeId, string> = {
+  general: 'Ask about the drawings, the shelf, or the math',
+  project: 'Ask about this bid set',
+  shelf: 'Ask about the vendors and their price books',
+  vendor: "Ask about this vendor's books and pricing",
+  memory: 'Ask how the workspace remembers things',
+};
 
-const PROMPTS = [
-  'Which vendors cover Division 10 28 00, and which part of it does nobody cover?',
-  'What throat depth does a 3-5/8 stud with 1/2 drywall both sides need?',
-  'Expand hardware set HW-2 and cite every catalog page.',
-];
+const WIDTH_KEY = 'cbc.chat.width';
+const WIDTH_MIN = 520;
+const WIDTH_MAX = 1600;
+const WIDTH_DEFAULT = 900;
 
-export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
+function clampWidth(n: number): number {
+  return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(n)));
+}
+
+/** Drag the right edge of the chat column to widen or narrow it. */
+function useChatWidth() {
+  const [width, setWidth] = useState(WIDTH_DEFAULT);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef(0);
+  const startW = useRef(WIDTH_DEFAULT);
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem(WIDTH_KEY));
+    if (Number.isFinite(saved) && saved >= WIDTH_MIN && saved <= WIDTH_MAX) {
+      setWidth(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const onMove = (event: PointerEvent) => {
+      const next = clampWidth(startW.current + (event.clientX - startX.current));
+      setWidth(next);
+    };
+    const onUp = (event: PointerEvent) => {
+      setDragging(false);
+      const next = clampWidth(startW.current + (event.clientX - startX.current));
+      setWidth(next);
+      window.localStorage.setItem(WIDTH_KEY, String(next));
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [dragging]);
+
+  const onHandlePointerDown = (event: ReactPointerEvent) => {
+    event.preventDefault();
+    startX.current = event.clientX;
+    startW.current = width;
+    setDragging(true);
+  };
+
+  return { width, dragging, onHandlePointerDown };
+}
+
+export function ChatPanel({
+  vendorFolders,
+  scope = 'general',
+  context,
+  fill = false,
+}: {
+  vendorFolders: string[];
+  /** Which surface this is. Decides the contract, the starter prompts and the session. */
+  scope?: ChatScopeId;
+  context?: ChatContext;
+  /** Fill the parent (docked side panel) instead of a centered resizable column. */
+  fill?: boolean;
+}) {
+  const definition = CHAT_SCOPES[scope];
+  // One conversation per scope and subject, so the bid set you were discussing is not
+  // still in context when you ask about a vendor's multiplier.
+  const storageKey = useMemo(() => sessionKey(scope, context), [scope, context]);
+  const PROMPTS = definition.prompts;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,10 +120,17 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const columnResize = useChatWidth();
+  const width = fill ? undefined : columnResize.width;
+  const dragging = fill ? false : columnResize.dragging;
+  const onHandlePointerDown = columnResize.onHandlePointerDown;
 
+  // localStorage is read in an effect, not during render, because this component is
+  // server-rendered first. Callers key the element on the scope, so switching subject
+  // remounts and clears the transcript rather than needing to reset it here.
   useEffect(() => {
-    sessionRef.current = window.localStorage.getItem(SESSION_KEY);
-  }, []);
+    sessionRef.current = window.localStorage.getItem(storageKey);
+  }, [storageKey]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -70,7 +162,7 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, sessionId: sessionRef.current }),
+          body: JSON.stringify({ message, sessionId: sessionRef.current, scope, context }),
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {
@@ -82,7 +174,7 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
           if (frame.event === 'session') {
             const { sessionId } = JSON.parse(frame.data) as { sessionId: string };
             sessionRef.current = sessionId;
-            window.localStorage.setItem(SESSION_KEY, sessionId);
+            window.localStorage.setItem(storageKey, sessionId);
             continue;
           }
           const payload = JSON.parse(frame.data) as StreamFrame;
@@ -127,23 +219,50 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
         boxRef.current?.focus();
       }
     },
-    [busy, patch],
+    [busy, patch, scope, context, storageKey],
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[900px] px-4 sm:px-6">
+        <div
+          className={cn('relative mx-auto w-full px-4 pt-4 sm:px-6', fill && 'max-w-none')}
+          style={fill ? undefined : { maxWidth: width }}
+        >
+          {!fill ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize chat panel"
+              aria-valuenow={width}
+              aria-valuemin={WIDTH_MIN}
+              aria-valuemax={WIDTH_MAX}
+              title="Drag to resize chat width"
+              onPointerDown={onHandlePointerDown}
+              className={cn(
+                'absolute top-0 right-0 bottom-0 z-10 hidden w-3 cursor-col-resize touch-none sm:block',
+                'after:bg-rule after:absolute after:inset-y-0 after:right-1 after:w-px after:transition-colors',
+                'hover:after:bg-signal',
+                dragging && 'after:bg-signal',
+              )}
+            />
+          ) : null}
+
           {messages.length === 0 ? (
-            <div className="pt-16 pb-8">
-              <p className="t-label mb-4">Ask the copilot</p>
-              <ul className="border-rule border-t">
+            <div className="pt-10 pb-8">
+              <p className="mb-1 text-[13px] font-semibold">{definition.title}</p>
+              {/* Say up front what this chat covers, so a question that belongs to a
+                  different surface is redirected before it is asked. */}
+              <p className="text-ink-muted mb-4 max-w-prose text-[12px] leading-relaxed">
+                {definition.blurb}
+              </p>
+              <ul className="panel overflow-hidden">
                 {PROMPTS.map((prompt) => (
-                  <li key={prompt}>
+                  <li key={prompt} className="border-rule border-b last:border-0">
                     <button
                       type="button"
                       onClick={() => void send(prompt)}
-                      className="border-rule hover:text-signal w-full cursor-pointer border-b py-3 text-left text-[14px] transition-colors"
+                      className="hover:bg-sunken w-full cursor-pointer px-4 py-3 text-left text-[14px] transition-colors"
                     >
                       {prompt}
                     </button>
@@ -160,31 +279,38 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
           <div className="py-6">
             {messages.map((message) =>
               message.role === 'user' ? (
-                <div key={message.id} className="border-rule mt-8 border-t pt-3 first:mt-0">
-                  <p className="t-label mb-2">You</p>
-                  <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
+                <div key={message.id} className="mt-8 first:mt-0">
+                  <div className="bg-signal-wash rounded-lg px-4 py-3">
+                    <p className="t-label mb-1.5 text-signal">You</p>
+                    <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                      {message.content}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div key={message.id} className="mt-5">
                   {message.streaming ? (
                     <StatusFeed events={message.status} className="mb-4" />
                   ) : message.status.length ? (
-                    <details className="border-rule mb-4 border-b pb-2">
+                    <details className="panel mb-4 px-3 py-2">
                       <summary className="t-label hover:text-ink cursor-pointer list-none py-1">
                         Activity
-                        <span className="text-rule-strong ml-2 font-mono normal-case">
+                        <span className="text-ink-muted ml-2 font-mono">
                           {message.status.length} events
                           {message.seconds ? ` · ${message.seconds.toFixed(1)}s` : ''}
                         </span>
                       </summary>
-                      <StatusFeed events={message.status} className="mt-2 border-t-0" dense />
+                      <StatusFeed events={message.status} className="mt-2" dense />
                     </details>
                   ) : null}
 
                   {message.content ? (
-                    <div className={cn(message.failed && 'border-alert border-l-2 pl-3')}>
+                    <div
+                      className={cn(
+                        'panel p-4',
+                        message.failed && 'border-alert/40',
+                      )}
+                    >
                       <ErrorBoundary label="This reply">
                         <Markdown content={message.content} vendorFolders={vendorFolders} />
                       </ErrorBoundary>
@@ -200,8 +326,14 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
         </div>
       </div>
 
-      <div className="border-rule bg-paper border-t">
-        <div className="mx-auto flex w-full max-w-[900px] items-end gap-4 px-4 py-3 sm:px-6">
+      <div className="border-rule bg-panel border-t">
+        <div
+          className={cn(
+            'relative mx-auto flex w-full items-end gap-3 px-4 py-3 sm:px-6',
+            fill && 'max-w-none',
+          )}
+          style={fill ? undefined : { maxWidth: width }}
+        >
           <textarea
             ref={boxRef}
             value={input}
@@ -212,16 +344,16 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
                 void send(input);
               }
             }}
-            placeholder="Ask about the drawings, the shelf, or the math"
+            placeholder={PLACEHOLDER[scope]}
             rows={1}
             aria-label="Message"
-            className="border-rule focus:border-signal placeholder:text-ink-muted max-h-40 min-h-9 flex-1 resize-y border-b bg-transparent py-1.5 text-[14px] outline-none"
+            className="border-rule focus:border-signal placeholder:text-ink-muted max-h-40 min-h-9 flex-1 resize-y rounded-md border bg-transparent px-3 py-2 text-[14px] outline-none"
           />
           {busy ? (
             <button
               type="button"
               onClick={() => abortRef.current?.abort()}
-              className="t-label hover:text-alert cursor-pointer py-2 transition-colors"
+              className="text-alert hover:bg-alert-wash cursor-pointer rounded-md px-3 py-2 text-[12px] font-medium transition-colors"
             >
               Stop
             </button>
@@ -230,7 +362,7 @@ export function ChatPanel({ vendorFolders }: { vendorFolders: string[] }) {
               type="button"
               onClick={() => void send(input)}
               disabled={!input.trim()}
-              className="t-label hover:text-signal cursor-pointer py-2 transition-colors disabled:opacity-40"
+              className="bg-signal text-primary-foreground hover:bg-signal/90 cursor-pointer rounded-md px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-40"
             >
               Send
             </button>

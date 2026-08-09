@@ -12,8 +12,10 @@
     "gateway": "node server/index.ts",
     "check:xlsx": "node lib/xlsx/quotation.check.ts",
     "check:events": "node server/events.check.ts",
-    "check": "npm run check:events && npm run check:xlsx && npm run check:citations",
-    "check:citations": "node lib/citations.check.ts"
+    "check": "npm run check:events && npm run check:xlsx && npm run check:citations && npm run check:quote-draft && npm run check:chat-scopes",
+    "check:citations": "node lib/citations.check.ts",
+    "check:quote-draft": "node lib/quote-draft.check.ts",
+    "check:chat-scopes": "node lib/chat-scopes.check.ts"
   },
   "dependencies": {
     "ai": "^7.0.56",

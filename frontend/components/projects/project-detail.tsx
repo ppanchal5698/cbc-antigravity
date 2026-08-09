@@ -72,25 +72,34 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         <UploadDrop projectId={projectId} onUploaded={() => void load()} />
       </Section>
 
-      <Section label="Estimates" aside={runs.length ? `${runs.length} runs` : undefined}>
+      <Section
+        label="Estimates"
+        panel
+        aside={runs.length ? `${runs.length} runs` : undefined}
+      >
         {runs.length ? (
-          <div className="border-rule border-t">
+          <div>
             {runs.map((run) => (
               <RunRow
                 key={run.id}
                 run={run}
                 filename={filenameFor(run)}
+                projectId={projectId}
                 onSettled={() => void load()}
               />
             ))}
           </div>
         ) : (
-          <Empty title="No estimates yet. Upload a bid set and one starts automatically." />
+          <div className="p-6">
+            <Empty title="No estimates yet. Upload a bid set and one starts automatically." />
+          </div>
         )}
       </Section>
 
-      <Section label="Folder" aside="plans/…">
-        <FileTree entries={entries} outputPaths={outputs} />
+      <Section label="Folder" panel aside="plans/…">
+        <div className="p-3">
+          <FileTree entries={entries} outputPaths={outputs} />
+        </div>
       </Section>
     </>
   );

@@ -75,7 +75,24 @@
         "citations": {
           "type": "string",
           "description": "Audit trail tags: [schedule] [spec] [note] [drawing] [catalog] [catalog-page] [not carried] [not indexed] [not stated]."
-        }
+        },
+        "confidence": {
+          "type": ["string", "null"],
+          "enum": ["HIGH", "MEDIUM", "LOW", null],
+          "description": "FR-8 match confidence. Omit or null when not assessed."
+        },
+        "pricingStatus": {
+          "type": ["string", "null"],
+          "enum": ["priced", "manual_entry_required", "awaiting_vendor_rfq", null],
+          "description": "FR-16 pricing state. Default priced when a unitSale is present."
+        },
+        "priceFreshness": {
+          "type": ["string", "null"],
+          "enum": ["fresh", "review", "stale", null]
+        },
+        "substitutionNotes": { "type": ["string", "null"] },
+        "unitCost": { "type": ["number", "null"] },
+        "marginRate": { "type": ["number", "null"] }
       }
     }
   }

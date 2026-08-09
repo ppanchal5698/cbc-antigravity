@@ -25,7 +25,7 @@ COPY lib ./lib
 COPY types ./types
 COPY docker ./docker
 
-RUN chmod +x /app/docker/entrypoint-agent.sh
+RUN sed -i 's/\r$//' /app/docker/entrypoint-agent.sh && chmod +x /app/docker/entrypoint-agent.sh
 
 ENV WORKSPACE_ROOT=/workspace \
     SEED_ROOT=/seed \

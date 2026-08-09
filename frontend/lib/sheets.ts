@@ -68,6 +68,25 @@ export function listDocs(): PlanDoc[] {
   return [...byStamp.values()];
 }
 
+/**
+ * How many sheets are indexed, without materializing them.
+ *
+ * The overview page called `listSheets()` and read `.length`, pulling every row of
+ * every indexed set across the process boundary to render one number.
+ */
+export function countSheets(docId?: string): number {
+  const ids = docId ? [docId] : listDocs().map((doc) => doc.docId);
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(', ');
+  return (
+    queryIndex<{ n: number }>(
+      PLAN_DB,
+      `SELECT COUNT(*) AS n FROM sheets WHERE doc_id IN (${placeholders})`,
+      ids,
+    )[0]?.n ?? 0
+  );
+}
+
 export function listSheets(docId?: string): PlanSheet[] {
   const docs = listDocs();
   const ids = docId ? [docId] : docs.map((doc) => doc.docId);

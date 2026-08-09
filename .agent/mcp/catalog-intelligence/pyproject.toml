@@ -7,6 +7,9 @@ dependencies = [
     "mcp>=2.0.0",
     # AGPL-3.0 (or Artifex commercial). See README before redistributing.
     "pymupdf>=1.24",
+    # .xlsx price lists: World Dryer's whole book, Gamco's distributor list and
+    # Hamilton Parker's net-cost sheets are spreadsheets, not PDFs.
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]

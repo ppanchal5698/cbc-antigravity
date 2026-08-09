@@ -21,6 +21,18 @@ Accessory records with tag, description, mounting, specified vs proposed vendor 
 whether that is a substitution, quantity, `verified_against_catalog`, and both citations.
 Plus the uncarried list and, where FRP applies, the takeoff with its provisional flag.
 
+## Handoff checklist
+
+Required fields per accessory (authority:
+[`estimate-quality-gate`](../skills/estimate-quality-gate/SKILL.md) §6):
+`item_tag`, `description`, `mounting`, `specified_mfr`, `specified_model`,
+`proposed_vendor`, `proposed_model`, `is_substitution`, `quantity`,
+`verified_against_catalog`, `sheet_citation`, `catalog_citation`.
+
+Missing `verified_against_catalog`, `sheet_citation`, or `catalog_citation` → return the
+payload incomplete and escalate. Never invent a model or citation to complete the shape.
+Uncarried CSI stays `[not carried on shelf — outside RFQ required]`.
+
 ## The four things that go wrong here
 
 1. **Expecting a schedule.** Division 10 is frequently keynotes on an enlarged restroom plan

@@ -22,6 +22,7 @@ sandbox/outputs/*
 Thumbs.db
 .vscode/
 .idea/
+.claude/
 
 # MCP index caches (rebuilt on demand)
 .agent/cache/

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { StatusFeed } from '@/components/chat/status-feed';
@@ -22,19 +23,15 @@ const TONE: Record<RunStatus, 'muted' | 'signal' | 'alert' | 'ink'> = {
   failed: 'alert',
 };
 
-/**
- * One background estimate.
- *
- * EventSource handles reconnection and replays missed events via Last-Event-ID,
- * so a dropped connection resumes the feed rather than restarting the run.
- */
 export function RunRow({
   run,
   filename,
+  projectId,
   onSettled,
 }: {
   run: RunSummary;
   filename: string;
+  projectId: string;
   onSettled?: () => void;
 }) {
   const [status, setStatus] = useState<RunStatus>(run.status);
@@ -53,7 +50,6 @@ export function RunRow({
       source.close();
       setStatus(fallback);
       if (message) setError(message);
-      // Re-read the row so the download link reflects what the worker wrote.
       const response = await fetch(`/api/runs/${run.id}`).catch(() => null);
       if (response?.ok) {
         const body = (await response.json()) as { run: RunSummary };
@@ -87,37 +83,35 @@ export function RunRow({
       settled = true;
       source.close();
     };
-    // One subscription per run; `status` is written here, never read as a dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.id, run.status, filename]);
 
   const active = status === 'pending' || status === 'running';
   const downloadHref = status === 'completed' ? `/api/runs/${run.id}/download` : null;
+  const reviewHref =
+    status === 'completed' ? `/projects/${projectId}/runs/${run.id}/review` : null;
 
   return (
-    <div className="border-rule border-b py-3">
+    <div className="border-rule border-b px-4 py-3 last:border-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-        {downloadHref ? (
-          <a
-            href={downloadHref}
-            download
-            className="text-signal min-w-0 truncate text-[13px] font-medium hover:underline"
-            title={`Download ${filename}`}
-          >
-            {filename}
-          </a>
-        ) : (
-          <span className="text-ink-muted min-w-0 truncate text-[13px] font-normal" title={filename}>
-            {filename}
-          </span>
-        )}
-        <div className="flex items-center gap-4">
+        <span className="text-ink min-w-0 truncate text-[13px] font-medium" title={filename}>
+          {filename}
+        </span>
+        <div className="flex flex-wrap items-center gap-3">
           <Marker tone={TONE[status]}>{status}</Marker>
+          {reviewHref ? (
+            <Link
+              href={reviewHref}
+              className="bg-signal text-primary-foreground hover:bg-signal/90 rounded-md px-2.5 py-1 text-[11px] font-medium no-underline transition-colors"
+            >
+              Review
+            </Link>
+          ) : null}
           {downloadHref ? (
             <a
               href={downloadHref}
               download
-              className="t-label text-signal hover:text-ink transition-colors"
+              className="text-ink-muted hover:text-ink text-[11px] font-medium transition-colors"
             >
               Download .xlsx
             </a>

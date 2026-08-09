@@ -50,8 +50,10 @@ if [ ! -f "$MARKER" ]; then
     log "building the Linux virtualenv"
     python3 -m venv "$WORKSPACE/.venv"
     "$WORKSPACE/.venv/bin/pip" install --no-cache-dir --upgrade pip setuptools wheel
-    # openpyxl is imported by the workspace's own xlsx exporters but declared in
-    # no pyproject.toml; without it those sandbox scripts fail at import.
+    # openpyxl is now declared in both pyproject.toml files, so the editable installs
+    # below bring it in. Kept as a belt-and-braces install for a workspace seeded from
+    # an older checkout, where catalog-intelligence would otherwise fail to read a
+    # spreadsheet price list.
     "$WORKSPACE/.venv/bin/pip" install --no-cache-dir openpyxl
     for server in building-plan-intelligence catalog-intelligence cbc-estimating-engine; do
       if [ -d "$WORKSPACE/.agent/mcp/$server" ]; then

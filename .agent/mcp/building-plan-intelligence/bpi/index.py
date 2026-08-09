@@ -45,10 +45,17 @@ _PREFIX_RX = re.compile(r"^([A-Z]{1,3})")
 TB_LABELS = ("SHEET NAME", "SHEET NUMBER", "SHEET TITLE", "SCALE", "DATE",
              "PROJECT", "CLIENT", "OWNER", "DRAWN", "CHECKED", "JOB", "REV")
 
-# A page that takes longer than this to extract is treated as unreadable rather
-# than allowed to hang the server.
+# A page that took longer than this to extract is recorded as needing vision rather
+# than trusted. This does NOT cap the extraction - it is measured after the call
+# returns, so a genuinely pathological page still costs its full wall time once. That is
+# tolerable only because "words" mode is the fast path (see the module docstring); if
+# extraction ever moves back to a mode that can take minutes, this needs a real timeout,
+# not a post-hoc label.
 PAGE_BUDGET_S = 20.0
 NO_TEXT_CHARS = 50
+
+# How often index_doc checkpoints, so a reader on the WAL sees the index fill in.
+COMMIT_EVERY_PAGES = 25
 
 
 def discipline_of(sheet_no):
@@ -200,6 +207,13 @@ def db_path():
 
 def connect():
     con = sqlite3.connect(db_path())
+    # WAL so a long indexing write does not block readers. The frontend opens this same
+    # file read-only; under the default rollback journal it got SQLITE_BUSY for the
+    # duration of an index and rendered the sheet list as empty.
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass          # read-only media or a filesystem without shared-memory support
     con.executescript(SCHEMA)
     return con
 
@@ -243,7 +257,7 @@ def index_doc(path, con=None, force=False):
             # Index reading-order rows, not raw get_text(): raw output interleaves
             # unrelated columns, so terms that sit side by side on the sheet end up
             # far apart in the string and verbatim verification misses them.
-            body = "\n".join(layout_rows(page)) if words else ""
+            body = "\n".join(layout_rows(page, words=words)) if words else ""
         except Exception:
             words, body = [], ""
         slow = (time.time() - t0) > PAGE_BUDGET_S
@@ -287,6 +301,12 @@ def index_doc(path, con=None, force=False):
                 "INSERT INTO sheet_text (doc_id,page,source,body) VALUES (?,?,?,?)",
                 (doc_id, pno + 1, "pdf", body))
 
+        # Checkpoint in chunks rather than holding one transaction across the whole set.
+        # The `docs` row lands last, so a crash mid-index leaves rows under a doc_id no
+        # query resolves, and re-indexing replaces them.
+        if pno % COMMIT_EVERY_PAGES == COMMIT_EVERY_PAGES - 1:
+            con.commit()
+
     con.execute("INSERT OR REPLACE INTO docs VALUES (?,?,?,?,?)",
                 (doc_id, path, len(doc), time.time(), stamp))
     con.commit()
@@ -296,14 +316,17 @@ def index_doc(path, con=None, force=False):
     return doc_id, True
 
 
-def layout_rows(page, clip=None, row_tol=4.0, gap=30.0):
+def layout_rows(page, clip=None, row_tol=4.0, gap=30.0, words=None):
     """Text as spatially-ordered rows, with column gaps marked.
 
     `get_text("text")` on a CAD sheet interleaves columns from unrelated tables
     into unreadable soup - that is how a reader ends up pairing a value with the
     wrong row. Grouping by y and marking large x-gaps keeps columns apart.
+
+    Takes `words` for the same reason `sheet_number` and `title_block` do: the caller
+    usually has them already, and re-extracting doubled the cost of indexing a page.
     """
-    words = _words(page)
+    words = _words(page) if words is None else words
     if clip is not None:
         words = [w for w in words
                  if clip.x0 <= w[0] <= clip.x1 and clip.y0 <= w[1] <= clip.y1]
@@ -364,6 +387,31 @@ _STRIP = re.compile(r"[‘’“”″′\"'`|,]")
 def norm(s):
     """Normalize for verbatim comparison: case, quotes, separators, whitespace."""
     return _WS.sub(" ", _STRIP.sub(" ", s or "")).strip().upper()
+
+
+# Normalized sheet bodies, keyed by doc_id. verify_facts is documented as the thing to
+# run on every claim before answering, so it is the hottest tool here, and it used to
+# re-normalize the whole set - two regex passes over every sheet - on every call.
+# Caching needs no invalidation hook: doc_id is a hash of path + mtime + size, so a
+# re-indexed set is simply a different key.
+#
+# NOT narrowed through FTS: verify_facts matches substrings, while FTS matches whole
+# tokens, so an FTS prefilter drops real hits (a claim that is part of a longer word).
+# The scan stays exhaustive; only the normalization is cached.
+_NORM_CACHE = {}
+_NORM_CACHE_MAX = 3
+
+
+def normalized_sheets(con, doc_id):
+    """[(page, source, normalized body)] for a document, normalized at most once."""
+    cached = _NORM_CACHE.get(doc_id)
+    if cached is None:
+        cached = [(p, src, norm(b)) for p, src, b in con.execute(
+            "SELECT page, source, body FROM sheet_text WHERE doc_id=?", (doc_id,))]
+        if len(_NORM_CACHE) >= _NORM_CACHE_MAX:
+            _NORM_CACHE.pop(next(iter(_NORM_CACHE)))
+        _NORM_CACHE[doc_id] = cached
+    return cached
 
 
 def resolve_page(con, doc_id, sheet):

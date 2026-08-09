@@ -1,0 +1,17 @@
+// Estimator-verified prices. These OUTRANK anything catalog-intelligence parses.
+// Written by the catalog-intelligence tool `record_price_override`; read back by
+// `lookup_product` and `list_price_overrides`. One JSON object per line, appended never
+// rewritten, so the history of who changed a price and when stays intact.
+//
+// This file lives in memory/ and not in .agent/cache/ on purpose: the cache is
+// gitignored and rebuilt on demand, and a verified price cannot be re-derived from the
+// PDFs. Lines beginning with // are ignored.
+//
+// Required: vendor, model, price, price_basis, source.
+// price_basis says WHAT the number is - list | net | distributor_net | dealer |
+// commercial | map | hamilton_parker_net. A net basis is already a cost; never apply a
+// vendor multiplier on top of one.
+// Leave size/finish empty to cover every variant of the model.
+//
+// Example of the shape (commented out - delete the slashes to make it real):
+// {"vendor": "HAGER", "model": "BB1279", "size": "4.5 x 4.5", "finish": "US26D", "price": 24.15, "price_basis": "net", "source": "Hager quote 88213", "confirmed_by": "estimator", "effective_date": "2026-08-01", "note": "", "recorded_at": "2026-08-08T00:00:00Z"}

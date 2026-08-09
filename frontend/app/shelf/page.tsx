@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getShelfStats } from '@/lib/catalog';
 import { formatTier, getEngineReference, tierFor } from '@/lib/engine-reference';
 import { CoverageBar } from '@/components/shelf/coverage-bar';
+import { ScopedChat } from '@/components/chat/scoped-chat';
 import { Page, PageHeader, HeaderStat } from '@/components/shell/page-header';
 import { count } from '@/components/shell/figure';
 import { Empty, Marker } from '@/components/shell/state';
@@ -43,7 +44,7 @@ export default async function ShelfPage() {
         filename. A text-only book&apos;s silence is not evidence a vendor does not carry a part.
       </p>
 
-      <div className="border-rule border-t">
+      <div className="space-y-3 pt-1">
         {vendors.map((vendor) => {
           const matched = tierFor(reference, vendor.folder);
           const textOnly = vendor.coverage === 'text_only';
@@ -51,7 +52,7 @@ export default async function ShelfPage() {
             <Link
               key={vendor.folder}
               href={`/shelf/${encodeURIComponent(vendor.folder)}`}
-              className="border-rule group grid grid-cols-1 gap-x-8 gap-y-4 border-b py-5 no-underline md:grid-cols-12"
+              className="panel group grid grid-cols-1 gap-x-8 gap-y-4 p-4 no-underline transition-shadow hover:shadow-[var(--elev-overlay)] md:grid-cols-12"
             >
               <div className="md:col-span-4">
                 <h2 className="group-hover:text-signal text-[17px] font-semibold tracking-[-0.01em] transition-colors">
@@ -103,6 +104,7 @@ export default async function ShelfPage() {
           );
         })}
       </div>
+      <ScopedChat scope="shelf" vendorFolders={vendors.map((vendor) => vendor.folder)} />
     </Page>
   );
 }

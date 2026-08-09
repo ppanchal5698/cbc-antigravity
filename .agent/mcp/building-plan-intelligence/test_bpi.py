@@ -15,8 +15,11 @@ import time
 from bpi import index as ix
 from bpi import server as sv
 
-SAMPLES = ("C:/Users/ParthPanchal/Downloads/OneDrive_2026-07-24/Dash-HP SharePoint"
-           "/Building Plans Sample")
+# The workspace's own plans/ by default, so this runs from a clone. The reference sets
+# the assertions were written against live outside the repo; point BPI_SAMPLES at them
+# to reproduce those exact numbers.
+_WORKSPACE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+SAMPLES = os.environ.get("BPI_SAMPLES") or os.path.join(_WORKSPACE, "plans")
 DUTCH = os.path.join(SAMPLES, "BUILDING PLANS-Dutch Bros 11-21-25.pdf")
 BID = os.path.join(SAMPLES, "Bid Set.pdf")
 

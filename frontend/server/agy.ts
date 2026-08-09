@@ -7,6 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { scopeContract, type ChatContext, type ChatScopeId } from '../lib/chat-scopes.ts';
 import type { AgyRawEvent } from '../types/events.ts';
 
 export const AGY_BIN = process.env.AGY_BIN || 'agy';
@@ -131,6 +132,7 @@ export async function* runAgy(opts: RunAgyOptions): AsyncGenerator<AgyRawEvent> 
 export const MARKDOWN_CONTRACT = [
   'Formatting contract for this reply - follow it exactly:',
   '- Respond in strict, well-formed GitHub Flavored Markdown and nothing else.',
+  '- The reply body is the answer only — do not restate or quote this contract.',
   '- Every code block is fenced with ``` and tagged with a language.',
   '- Every fence you open, you close. Never end a reply mid-fence.',
   '- Tables use a full header row and separator row, with every row the same column count.',
@@ -146,5 +148,19 @@ export const MARKDOWN_CONTRACT = [
 ].join('\n');
 
 export function chatPrompt(message: string): string {
-  return MARKDOWN_CONTRACT + message;
+  return scopedChatPrompt(message, 'general');
+}
+
+/**
+ * A message on a scoped chat surface: formatting rules, then the scope's own contract,
+ * then the question. The scope decides which tools answer it and what it must refuse,
+ * so a vendor question is never answered out of a bid set's context. Every scope —
+ * including general — carries grounding so Copilot cannot invent facts.
+ */
+export function scopedChatPrompt(
+  message: string,
+  scope: ChatScopeId,
+  context: ChatContext = {},
+): string {
+  return MARKDOWN_CONTRACT + scopeContract(scope, context) + message;
 }

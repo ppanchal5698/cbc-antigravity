@@ -101,10 +101,12 @@ path via `PYTHONPATH`:
 {
   "mcpServers": {
     "catalog-intelligence": {
-      "command": "C:\\Python314\\python.exe",
+      "command": "<workspace>\\.venv\\Scripts\\python.exe",
       "args": ["-m", "catint.server"],
       "env": {
-        "PYTHONPATH": "C:\\Parth Panchal\\mcp-servers\\catalog-intelligence"
+        "PYTHONPATH": "<workspace>\\.agent\\mcp\\catalog-intelligence",
+        "CATINT_CACHE": "<workspace>\\.agent\\cache\\catalog-intelligence",
+        "PYMUPDF_MESSAGE": "fd:2"
       }
     }
   }
@@ -121,7 +123,7 @@ These support `cwd`:
     "catalog-intelligence": {
       "command": "python",
       "args": ["-m", "catint.server"],
-      "cwd": "C:/Parth Panchal/mcp-servers/catalog-intelligence"
+      "cwd": "<workspace>/.agent/mcp/catalog-intelligence"
     }
   }
 }

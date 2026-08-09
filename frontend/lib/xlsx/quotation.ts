@@ -8,6 +8,10 @@
  */
 import ExcelJS from 'exceljs';
 
+export type LineConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+export type PricingStatus = 'priced' | 'manual_entry_required' | 'awaiting_vendor_rfq';
+export type PriceFreshness = 'fresh' | 'review' | 'stale';
+
 export type QuotationLine = {
   tag: string;
   room: string;
@@ -19,6 +23,13 @@ export type QuotationLine = {
   costBasis: string;
   /** `[schedule] Sheet A1.1 / Hager #18` style audit trail. */
   citations: string;
+  /** Optional FR-8 / FR-9 / FR-16 fields — agent may omit; UI defaults apply. */
+  confidence?: LineConfidence | null;
+  pricingStatus?: PricingStatus | null;
+  priceFreshness?: PriceFreshness | null;
+  substitutionNotes?: string | null;
+  unitCost?: number | null;
+  marginRate?: number | null;
 };
 
 export type QuotationData = {

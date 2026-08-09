@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -248,7 +249,8 @@ VENDOR_TIERS = {
         "basis": "list",
         "effective_date": "2022-09-01",
         "catalog_source": "Copy of L-3World Dryer Pricing_9.2022_L3 - .339 MULTIPLIER.xlsx",
-        "notes": "Level-3 discount tier. Price book is Excel (not indexed by catalog-intelligence).",
+        "notes": "Level-3 discount tier. Price book is Excel; catalog-intelligence now "
+                 "indexes it, and its rows carry price_basis (list / map / net).",
         "sourcing_type": "direct",
     },
     "NUDO": {
@@ -568,6 +570,42 @@ STANDARD_FRAME_THROATS = [
 ]
 
 
+# A stud width as anyone actually writes it: `6"`, `6 inch`, `3-5/8"`, `2x6`, with an
+# optional material word before `stud`. The old matcher tested for the literal substring
+# `6" stud`, which does not appear in `6" metal stud + 5/8" drywall` — the exact wall
+# STANDARD_FRAME_THROATS pairs with 8-1/4".
+_STUD_RX = re.compile(
+    r'(\d+(?:[-\s]\d+/\d+)?)\s*(?:"|”|in\b|inch(?:es)?\b)?\s*'
+    r'(?:metal|steel|mtl|wood)?\s*studs?',
+    re.I,
+)
+
+
+def _inches(text: str) -> float:
+    """`6` -> 6.0, `3-5/8` -> 3.625. Whole number plus an optional fraction."""
+    whole, _, frac = text.strip().replace(" ", "-").partition("-")
+    value = float(whole)
+    if "/" in frac:
+        numerator, denominator = frac.split("/", 1)
+        value += float(numerator) / float(denominator)
+    return value
+
+
+def stud_width_in(wall_description: str) -> Optional[float]:
+    """Stud width in inches read out of a wall description, or None if it names none.
+
+    Shared with okf.resolve_wall_to_throat so the graph's fallback heuristic and the
+    engine's derivation cannot disagree about what a 6" stud looks like.
+    """
+    match = _STUD_RX.search(wall_description or "")
+    if not match:
+        return None
+    try:
+        return _inches(match.group(1))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
 def calculate_frame_throat(
     wall_type: str,
     stud_size_in: Optional[float] = None,
@@ -576,10 +614,11 @@ def calculate_frame_throat(
     """Derive standard hollow metal frame depth/throat size from wall construction."""
     wt = wall_type.lower()
     all_sizes = [t["throat"] for t in STANDARD_FRAME_THROATS]
+    stud_in = stud_size_in if stud_size_in is not None else stud_width_in(wt)
 
     if "masonry" in wt or "cmu" in wt or "block" in wt or "concrete" in wt:
         throat, dec, cat = '5-3/4"', 5.75, "Masonry / CMU"
-    elif "6\" stud" in wt or "6 inch stud" in wt or (stud_size_in and stud_size_in >= 6.0):
+    elif stud_in is not None and stud_in >= 6.0:
         throat, dec, cat = '8-1/4"', 8.25, "6\" Metal Stud Partition"
     elif "1/2" in wt and ("drywall" in wt or "gyp" in wt):
         throat, dec, cat = '5-5/8"', 5.625, "3-5/8\" Stud + 1/2\" Drywall"
@@ -1016,7 +1055,16 @@ def format_cbc_proposal(
                 "ext_sale": alt_sale,
                 "sales_tax_amount": alt_tax,
                 "total_with_tax": round(alt_sale + alt_tax, 2),
-                "net_delta_vs_base": round(alt_sale, 2),
+                # An actual delta. This carried `alt_sale` — the alternate's own total
+                # under a name that reads as the difference, which is exactly the number
+                # an estimator compares an alternate on.
+                "net_delta_vs_base": round(alt_sale - base_sale, 2),
+                "delta_basis": (
+                    "alternate ext_sale minus base bid ext_sale. Assumes the alternate "
+                    "REPLACES the base scope; for an add-alternate the delta is its own "
+                    "ext_sale. Reconciliation is not CBC-confirmed (Open Item 11) — "
+                    "state which reading you used."
+                ),
             })
 
     ready = not audit_failures

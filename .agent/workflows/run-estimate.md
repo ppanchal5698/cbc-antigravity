@@ -63,6 +63,8 @@ over the whole thing before showing me anything.
 - Do not price an aluminium storefront, overhead door, tile, masonry or plumbing fixture —
   those are out of CBC's scope. Exclude them visibly.
 - Do not read a `text_only` catalog's silence as "this vendor does not carry it."
+- Do not complete a specialist handoff by inventing missing `verified_against_*`,
+  `cost_source`, or citations — send incomplete work back or raise an RFI.
 - Do not send anything to a customer. Every output is a draft for the estimator.
 
 ## Deliver

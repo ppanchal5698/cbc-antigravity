@@ -183,12 +183,42 @@ export class RunBuffer {
   private listeners = new Set<(id: number, frame: StreamFrame) => void>();
   finished = false;
 
+  /**
+   * SSE id of `frames[0]`, rising as the cap evicts the oldest frames.
+   *
+   * Ids must be monotonic for the whole run, not positions in the array: deriving the
+   * id from `frames.length` after a shift pinned every frame past the cap at id 5000,
+   * so a reconnect resumed from the wrong place. A 30-minute estimate streaming tokens
+   * passes 5000 frames easily, so that was the normal case.
+   */
+  firstId = 1;
+
+  get lastId(): number {
+    return this.firstId + this.frames.length - 1;
+  }
+
   push(frame: StreamFrame): void {
     this.frames.push(frame);
-    if (this.frames.length > MAX_FRAMES) this.frames.shift();
-    const id = this.frames.length;
+    if (this.frames.length > MAX_FRAMES) {
+      this.frames.shift();
+      this.firstId += 1;
+    }
+    const id = this.lastId;
     if (frame.kind === 'done' || frame.kind === 'error') this.finished = true;
     for (const listener of this.listeners) listener(id, frame);
+  }
+
+  /**
+   * Everything after `lastEventId`, each with its own id. A client asking for a frame
+   * already evicted gets the oldest surviving one rather than silence.
+   */
+  since(lastEventId: number): { id: number; frame: StreamFrame }[] {
+    const from = Math.max(lastEventId + 1, this.firstId);
+    const out: { id: number; frame: StreamFrame }[] = [];
+    for (let id = from; id <= this.lastId; id += 1) {
+      out.push({ id, frame: this.frames[id - this.firstId]! });
+    }
+    return out;
   }
 
   subscribe(listener: (id: number, frame: StreamFrame) => void): () => void {

@@ -20,6 +20,18 @@ Per line: cost, margin, quantity, `sale_ea`, `ext_sale`, `ext_cost`, `cost_sourc
 `cost_source_detail`, and a confidence rating. A line you could not cost comes back marked
 `awaiting vendor quote` or `MANUAL_PRICE_ENTRY`, not estimated.
 
+## Handoff checklist
+
+Required fields per priced line (authority:
+[`estimate-quality-gate`](../skills/estimate-quality-gate/SKILL.md) §6):
+`cost`, `margin`, `quantity`, `sale_ea`, `ext_sale`, `ext_cost`, `cost_source`,
+`cost_source_detail`, `confidence`.
+
+Missing `cost_source`, `cost_source_detail`, or any engine-computed field → return the
+line incomplete (`awaiting vendor quote` / `MANUAL_PRICE_ENTRY`) and escalate. Never invent
+a cost, adder, multiplier, or margin to complete the shape. All arithmetic from
+`calculate_quote_line` only.
+
 ## Non-negotiables
 
 **Never do the arithmetic yourself.** `calculate_quote_line`, `get_margin_band`,

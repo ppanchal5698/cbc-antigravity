@@ -1,11 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-/**
- * The big numeral. Swiss design earns its calm by letting one number be large
- * and everything around it be small, so this is deliberately sparing: a label,
- * the figure, and at most one line of context.
- */
 export function Figure({
   label,
   value,
@@ -22,8 +17,8 @@ export function Figure({
   className?: string;
 }) {
   return (
-    <div className={cn('min-w-0', className)}>
-      <p className="t-label mb-3">{label}</p>
+    <div className={cn('min-w-0 p-4', className)}>
+      <p className="t-label mb-2.5">{label}</p>
       <p
         className={cn(
           't-figure flex items-baseline gap-1.5',
@@ -42,12 +37,11 @@ export function Figure({
   );
 }
 
-/** Figures sit on a rule-separated row, never in boxes. */
 export function FigureRow({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(
-        'divide-rule border-rule grid gap-px border-y sm:grid-cols-2 lg:grid-cols-4',
+        'panel grid sm:grid-cols-2 lg:grid-cols-4 [&>*]:border-rule [&>*:not(:last-child)]:border-b lg:[&>*:not(:last-child)]:border-b-0 lg:[&>*:not(:last-child)]:border-r',
         className,
       )}
     >
@@ -56,13 +50,11 @@ export function FigureRow({ children, className }: { children: ReactNode; classN
   );
 }
 
-/** Formats a count with thin grouping. Falls back to an em dash for null. */
 export function count(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   return n.toLocaleString('en-US');
 }
 
-/** Money, always two decimals, always tabular. */
 export function money(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   return n.toLocaleString('en-US', {
