@@ -25,7 +25,8 @@ COPY lib ./lib
 COPY types ./types
 COPY docker ./docker
 
-RUN sed -i 's/\r$//' /app/docker/entrypoint-agent.sh && chmod +x /app/docker/entrypoint-agent.sh
+RUN sed -i 's/\r$//' /app/docker/entrypoint-agent.sh /app/docker/agy_auth_broker.py \
+  && chmod +x /app/docker/entrypoint-agent.sh /app/docker/agy_auth_broker.py
 
 ENV WORKSPACE_ROOT=/workspace \
     SEED_ROOT=/seed \

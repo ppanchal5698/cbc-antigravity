@@ -20,23 +20,27 @@ cp .env.example .env
 docker compose build
 ```
 
-**Sign in to Antigravity once.** `agy` has no API-key auth — credentials come
-from an OAuth login cached in the container's keyring, which lives in the
-`agy-home` volume and survives restarts.
-
-```bash
-docker compose run --rm -it agent agy
-```
-
-It prints an authorization URL; open it in a browser, sign in, and paste the
-code back. Until this is done every run fails with *"Antigravity is not signed
-in"*.
-
 ```bash
 docker compose up -d
 ```
 
 The UI is on <http://localhost:3000>.
+
+**Sign in to Antigravity once.** `agy` has no API-key auth — credentials come
+from an OAuth login cached in the agent container (file-based token under
+`~/.gemini/`, in the `agy-home` volume).
+
+In the UI, click **Needs sign-in** in the top bar. Open the Google URL it shows,
+approve access, and paste the code back. Credentials survive restarts.
+**Log out** next to **Signed in** clears the token from the agent volume.
+
+CLI fallback (same OAuth dance in a terminal):
+
+```bash
+docker compose run --rm -it agent agy
+```
+
+Until this is done every run fails with *"Antigravity is not signed in"*.
 
 First boot takes a few minutes: the agent container seeds `/workspace` from the
 host CBC workspace (mounted read-only at `/seed`), builds a Linux virtualenv and

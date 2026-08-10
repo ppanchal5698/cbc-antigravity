@@ -2,35 +2,53 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
 import { Menu, Moon, Search, Sun } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useChrome } from '@/components/shell/chrome-context';
+import { AgySignInDialog } from '@/components/shell/agy-sign-in-dialog';
 
-function useGatewayStatus() {
-  const [ok, setOk] = useState<boolean | null>(null);
+type GatewayState = {
+  ok: boolean | null;
+  signedIn: boolean | null;
+};
+
+function useGatewayStatus(): GatewayState & { refresh: () => void } {
+  const [state, setState] = useState<GatewayState>({ ok: null, signedIn: null });
+
+  const check = useCallback(async () => {
+    try {
+      const response = await fetch('/api/health', { cache: 'no-store' });
+      const body = (await response.json()) as { ok?: boolean; signedIn?: boolean };
+      setState({ ok: Boolean(body.ok), signedIn: Boolean(body.signedIn) });
+    } catch {
+      setState({ ok: false, signedIn: false });
+    }
+  }, []);
+
+  const refresh = useCallback(() => {
+    void check();
+  }, [check]);
 
   useEffect(() => {
     let cancelled = false;
-    const check = async () => {
-      try {
-        const response = await fetch('/api/health', { cache: 'no-store' });
-        const body = (await response.json()) as { ok?: boolean };
-        if (!cancelled) setOk(Boolean(body.ok));
-      } catch {
-        if (!cancelled) setOk(false);
-      }
+    const run = async () => {
+      if (cancelled) return;
+      await check();
     };
-    void check();
-    const timer = setInterval(check, 20_000);
+    void run();
+    const timer = setInterval(() => {
+      void check();
+    }, 20_000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [check]);
 
-  return ok;
+  return { ...state, refresh };
 }
 
 function ThemeToggle() {
@@ -56,28 +74,97 @@ function ThemeToggle() {
   );
 }
 
-function AgentStatus({ ok }: { ok: boolean | null }) {
-  const label = ok === null ? 'Checking…' : ok ? 'Agent online' : 'Agent offline';
+function AgentStatus({
+  ok,
+  signedIn,
+  onSignIn,
+  onLogout,
+  loggingOut,
+}: {
+  ok: boolean | null;
+  signedIn: boolean | null;
+  onSignIn: () => void;
+  onLogout: () => void;
+  loggingOut: boolean;
+}) {
+  const offline = ok === false;
+  const checking = ok === null;
+  const needsSignIn = ok === true && signedIn === false;
+  const signedInOk = ok === true && signedIn === true;
+
+  const label = checking
+    ? 'Checking…'
+    : offline
+      ? 'Agent offline'
+      : needsSignIn
+        ? 'Needs sign-in'
+        : 'Signed in';
+
+  const title = checking
+    ? 'Checking the Antigravity gateway'
+    : offline
+      ? 'Antigravity gateway unreachable'
+      : needsSignIn
+        ? 'Antigravity is reachable but not signed in — click to sign in'
+        : 'Antigravity signed in';
+
+  const dotClass = checking
+    ? 'bg-ink-muted'
+    : offline
+      ? 'bg-alert'
+      : needsSignIn
+        ? 'bg-amber-500'
+        : 'bg-signal';
+
+  if (needsSignIn) {
+    return (
+      <button
+        type="button"
+        onClick={onSignIn}
+        className="text-ink-muted hover:bg-sunken hover:text-ink hidden cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[12px] select-none sm:flex"
+        title={title}
+        aria-label="Sign in to Antigravity"
+      >
+        <span className={cn('size-1.5 rounded-full', dotClass)} aria-hidden />
+        {label}
+      </button>
+    );
+  }
+
+  if (signedInOk) {
+    return (
+      <span className="text-ink-muted hidden items-center gap-1 sm:flex">
+        <span
+          role="status"
+          aria-live="polite"
+          className="inline-flex items-center gap-1.5 px-2 py-1 text-[12px] select-none"
+          title={title}
+        >
+          <span className={cn('size-1.5 rounded-full', dotClass)} aria-hidden />
+          {label}
+        </span>
+        <button
+          type="button"
+          onClick={onLogout}
+          disabled={loggingOut}
+          className="hover:bg-sunken hover:text-ink cursor-pointer rounded-md px-2 py-1 text-[12px] transition-colors disabled:cursor-wait disabled:opacity-50"
+          aria-label="Sign out of Antigravity"
+          title="Remove the Antigravity OAuth token from this agent"
+        >
+          {loggingOut ? 'Signing out…' : 'Log out'}
+        </button>
+      </span>
+    );
+  }
+
   return (
     <span
       role="status"
       aria-live="polite"
       className="text-ink-muted hidden items-center gap-1.5 text-[12px] select-none sm:flex"
-      title={
-        ok === null
-          ? 'Checking the Antigravity gateway'
-          : ok
-            ? 'Antigravity gateway reachable'
-            : 'Antigravity gateway unreachable'
-      }
+      title={title}
     >
-      <span
-        className={cn(
-          'size-1.5 rounded-full',
-          ok === null ? 'bg-ink-muted' : ok ? 'bg-signal' : 'bg-alert',
-        )}
-        aria-hidden
-      />
+      <span className={cn('size-1.5 rounded-full', dotClass)} aria-hidden />
       {label}
     </span>
   );
@@ -91,9 +178,29 @@ function projectIdFromPath(pathname: string): string | null {
 
 export function TopBar() {
   const pathname = usePathname();
-  const gatewayOk = useGatewayStatus();
+  const gateway = useGatewayStatus();
   const { title, status, mobileNavOpen, setMobileNavOpen } = useChrome();
   const projectId = projectIdFromPath(pathname);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const logout = async () => {
+    setLoggingOut(true);
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        toast.error(body.error || `Sign-out failed (${response.status})`);
+        return;
+      }
+      toast.success('Signed out of Antigravity');
+      gateway.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <header className="desk-chrome border-rule sticky top-0 z-40 border-b">
@@ -149,9 +256,21 @@ export function TopBar() {
           <kbd className="bg-sunken rounded px-1 font-mono text-[10px]">⌘K</kbd>
         </button>
 
-        <AgentStatus ok={gatewayOk} />
+        <AgentStatus
+          ok={gateway.ok}
+          signedIn={gateway.signedIn}
+          onSignIn={() => setSignInOpen(true)}
+          onLogout={() => void logout()}
+          loggingOut={loggingOut}
+        />
         <ThemeToggle />
       </div>
+
+      <AgySignInDialog
+        open={signInOpen}
+        onOpenChange={setSignInOpen}
+        onSignedIn={gateway.refresh}
+      />
     </header>
   );
 }

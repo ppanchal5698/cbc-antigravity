@@ -8,6 +8,14 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { runAgy, scopedChatPrompt, AgyError, WORKSPACE_ROOT } from './agy.ts';
+import {
+  authStatus,
+  cancelAuth,
+  completeAuth,
+  isSignedIn,
+  logoutAuth,
+  startAuth,
+} from './agy-auth.ts';
 import { gate, REFUSAL_TEXT } from './gatekeeper.ts';
 import {
   CHAT_SCOPES,
@@ -367,7 +375,41 @@ const server = createServer((req, res) => {
   void (async () => {
     try {
       if (path === '/health') {
-        json(res, 200, { ok: true, workspace: WORKSPACE_ROOT });
+        json(res, 200, {
+          ok: true,
+          workspace: WORKSPACE_ROOT,
+          signedIn: await isSignedIn(),
+        });
+        return;
+      }
+      if (path === '/auth/status' && req.method === 'GET') {
+        json(res, 200, await authStatus());
+        return;
+      }
+      if (path === '/auth/start' && req.method === 'POST') {
+        try {
+          json(res, 200, await startAuth());
+        } catch (err) {
+          json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      if (path === '/auth/complete' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const code = typeof body.code === 'string' ? body.code : '';
+        try {
+          json(res, 200, await completeAuth(code));
+        } catch (err) {
+          json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      if (path === '/auth/cancel' && req.method === 'POST') {
+        json(res, 200, await cancelAuth());
+        return;
+      }
+      if (path === '/auth/logout' && req.method === 'POST') {
+        json(res, 200, await logoutAuth());
         return;
       }
       if (path === '/engine/reference' && req.method === 'GET') {

@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { scopeContract, type ChatContext, type ChatScopeId } from '../lib/chat-scopes.ts';
 import type { AgyRawEvent } from '../types/events.ts';
+import { AGY_SSH_ENV } from './agy-auth.ts';
 
 export const AGY_BIN = process.env.AGY_BIN || 'agy';
 export const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || '/workspace';
@@ -71,8 +72,8 @@ export class AgyError extends Error {
 function describeExit(code: number | null, stderr: string): string {
   if (/authentication (required|failed|timed out)/i.test(stderr)) {
     return (
-      'Antigravity is not signed in. Run `docker compose run --rm -it agent agy` once, ' +
-      'open the URL it prints, and paste the code back. Credentials persist in the agy-home volume.'
+      'Antigravity is not signed in. Use Sign in on the agent status in the top bar ' +
+      '(or run `docker compose run --rm -it agent agy` once). Credentials persist in the agy-home volume.'
     );
   }
   return `agy exited with code ${code}${stderr ? `: ${stderr.trim()}` : ''}`;
@@ -85,7 +86,9 @@ function describeExit(code: number | null, stderr: string): string {
 export async function* runAgy(opts: RunAgyOptions): AsyncGenerator<AgyRawEvent> {
   const child = spawn(AGY_BIN, buildArgs(opts), {
     cwd: opts.cwd || WORKSPACE_ROOT,
-    env: process.env,
+    // Fake SSH_* so agy reads the file-based token the browser sign-in wrote,
+    // instead of a container keyring that may be empty or unlocked inconsistently.
+    env: { ...process.env, ...AGY_SSH_ENV },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });

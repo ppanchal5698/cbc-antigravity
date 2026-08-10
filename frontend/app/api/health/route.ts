@@ -10,10 +10,18 @@ export async function GET(): Promise<Response> {
       cache: 'no-store',
       signal: AbortSignal.timeout(4000),
     });
-    if (!response.ok) return Response.json({ ok: false }, { status: 200 });
-    const body = (await response.json()) as { ok?: boolean; workspace?: string };
-    return Response.json({ ok: Boolean(body.ok), workspace: body.workspace ?? null });
+    if (!response.ok) return Response.json({ ok: false, signedIn: false }, { status: 200 });
+    const body = (await response.json()) as {
+      ok?: boolean;
+      workspace?: string;
+      signedIn?: boolean;
+    };
+    return Response.json({
+      ok: Boolean(body.ok),
+      workspace: body.workspace ?? null,
+      signedIn: Boolean(body.signedIn),
+    });
   } catch {
-    return Response.json({ ok: false }, { status: 200 });
+    return Response.json({ ok: false, signedIn: false }, { status: 200 });
   }
 }
