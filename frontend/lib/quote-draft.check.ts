@@ -58,6 +58,8 @@ function line(partial: Partial<QuoteLineRow>): QuoteLineRow {
     substitution_notes: null,
     unit_cost: 73,
     margin_rate: 0.27,
+    quantity_source: 'schedule:A2.2 row T1',
+    size_source: null,
     deleted_at: null,
     created_at: '2026-08-08T00:00:00Z',
     updated_at: '2026-08-08T00:00:00Z',
@@ -119,5 +121,23 @@ const empty = quotationFromDraft(draft, []);
 assert.deepEqual(empty.doorLines, []);
 assert.deepEqual(empty.accessoryLines, []);
 assert.equal(empty.projectName, 'Baldwin PA');
+
+// --- provenance survives the round trip -------------------------------------
+// The estimator's reason to trust a quantity is where it was read. It has to reach the
+// review screen through the DB row, so a line that loses it in mapping is a line that
+// looks sourced and is not.
+const sourced = quotationFromDraft(draft, [
+  line({ section: 'door', tag: 'D9', acceptance: 'accepted',
+         quantity_source: 'tag_count:A5.1', size_source: 'vision:A5.1' }),
+]);
+assert.equal(sourced.doorLines[0].quantitySource, 'tag_count:A5.1');
+assert.equal(sourced.doorLines[0].sizeSource, 'vision:A5.1');
+
+// A missing source stays missing. Defaulting it to anything would manufacture the exact
+// reassurance the column exists to withhold.
+const unsourced = quotationFromDraft(draft, [
+  line({ section: 'door', tag: 'D10', acceptance: 'accepted', quantity_source: null }),
+]);
+assert.equal(unsourced.doorLines[0].quantitySource, null);
 
 console.log('quote draft check passed');

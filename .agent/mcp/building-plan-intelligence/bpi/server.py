@@ -9,6 +9,7 @@ readable tiles and lets the caller write back what it read.
 import asyncio
 import base64
 import json
+import time
 
 import fitz
 from mcp.server.mcpserver import MCPServer
@@ -23,7 +24,9 @@ mcp = MCPServer(
         "WORKFLOW: 1) open_plan_set(pdf_path) -> doc_id. 2) plan_overview(doc_id). "
         "3) list_sheets / search_sheets to locate. 4) read_schedule for ANY table; "
         "get_sheet/read_layout for notes. 5) render_sheet + record_vision_reading "
-        "for sheets whose vision_need is 'full' or 'identity'. "
+        "for sheets whose vision_need is 'full', 'identity' or 'drawing'. "
+        "find_schedule(doc_id, kind) locates a schedule by CONTENT - never guess a "
+        "sheet number, numbering differs between firms. "
         "6) verify_facts on every claim before you answer.\n"
         "FOUR RULES THAT PREVENT WRONG ANSWERS:\n"
         "1. Schedules: always read_schedule, never flat text. Sheet text interleaves "
@@ -31,6 +34,9 @@ mcp = MCPServer(
         "row and hides whole rows.\n"
         "2. Enumerate: count the rows a schedule returns and report every one. "
         "Numbering skips (01,02,03,06) - never assume a range is contiguous.\n"
+        "2b. A schedule that states no quantity or no size does not mean one each of a "
+        "standard size - the number is on the plan or the elevation. Read it there with "
+        "render_sheet, or report it as unread. Never default a quantity to 1.\n"
         "3. Cross-check: run cross_reference on every manufacturer/model/product. "
         "Spec sheets and drawing schedules often disagree; report the conflict "
         "rather than picking one.\n"
@@ -44,6 +50,16 @@ mcp = MCPServer(
 
 DEFAULT_DPI = 150
 DEFAULT_COLS, DEFAULT_ROWS = 3, 2
+
+# find_schedule reads tables on the best few candidates, never the whole document: a
+# full-set scan measured 197s (Dutch Bros, 65 sheets) and 202s (Baldwin, 87) and returned
+# 566 and 379 tables respectively, because every title block and revision block is a ruled
+# grid. Typical sheets take 0.4-2.8s; a pathological one takes 25-31s, hence the budget.
+MAX_SCHEDULE_CANDIDATES = 3
+SCHEDULE_TABLE_BUDGET_S = 12.0
+
+# A tile should land body text at ~16px. 36x24 wants 3x2; a small sheet needs fewer.
+TILE_TARGET_IN = 12.0
 
 
 def _con():
@@ -87,12 +103,16 @@ def open_plan_set(pdf_path: str) -> str:
             "vision_need": {
                 "none": need.get("none", 0),
                 "identity": need.get("identity", 0),
+                "drawing": need.get("drawing", 0),
                 "full": need.get("full", 0),
             },
-            "hint": ("Sheets with vision_need 'full' have no text layer at all; "
-                     "'identity' means the drawing is searchable but its title "
-                     "block was outlined so the sheet number is unknown. Use "
-                     "render_sheet + record_vision_reading on those."),
+            "hint": ("'full' - no text layer at all. 'identity' - searchable but the "
+                     "title block was outlined, so the sheet is unnamed. 'drawing' - "
+                     "extracted and named, but what it means is geometry: tag counts, "
+                     "sizes and locations are not in the text layer. All three need "
+                     "render_sheet + record_vision_reading before a quantity is taken "
+                     "off them. Use find_schedule to locate a schedule by content - "
+                     "sheet numbering differs between firms."),
         }, indent=2)
     finally:
         con.close()
@@ -103,7 +123,7 @@ def list_sheets(doc_id: str, discipline: str = "", vision_need: str = "") -> str
     """List the sheet index: sheet number, title, page, discipline.
 
     Filter by discipline (e.g. 'Architectural') or by vision_need
-    ('none' | 'identity' | 'full') to find sheets still unread.
+    ('none' | 'identity' | 'drawing' | 'full') to find sheets still unread.
     """
     con = _con()
     try:
@@ -141,7 +161,12 @@ def get_sheet(doc_id: str, sheet: str) -> str:
         path, _ = _doc_row(con, doc_id)
         page = ix.resolve_page(con, doc_id, sheet)
         if page is None:
-            return json.dumps({"error": f"no sheet or page matching {sheet!r}"})
+            return json.dumps({
+                "error": f"no sheet or page matching {sheet!r}",
+                "did_you_mean": ix.near_misses(con, doc_id, sheet),
+                "hint": "Sheet numbering differs between firms. Use find_schedule to "
+                        "locate a schedule by content instead of guessing a number.",
+            })
         r = con.execute(
             "SELECT page, sheet_no, title, discipline, confidence, vision_need, "
             "width_in, height_in, tb_json FROM sheets WHERE doc_id=? AND page=?",
@@ -194,7 +219,12 @@ def read_schedule(doc_id: str, sheet: str, region: str = "") -> str:
         path, _ = _doc_row(con, doc_id)
         page_no = ix.resolve_page(con, doc_id, sheet)
         if page_no is None:
-            return json.dumps({"error": f"no sheet or page matching {sheet!r}"})
+            return json.dumps({
+                "error": f"no sheet or page matching {sheet!r}",
+                "did_you_mean": ix.near_misses(con, doc_id, sheet),
+                "hint": "Sheet numbering differs between firms. Use find_schedule to "
+                        "locate a schedule by content instead of guessing a number.",
+            })
         doc = fitz.open(path)
         try:
             page = doc[page_no - 1]
@@ -237,7 +267,12 @@ def read_layout(doc_id: str, sheet: str, region: str = "") -> str:
         path, _ = _doc_row(con, doc_id)
         page_no = ix.resolve_page(con, doc_id, sheet)
         if page_no is None:
-            return json.dumps({"error": f"no sheet or page matching {sheet!r}"})
+            return json.dumps({
+                "error": f"no sheet or page matching {sheet!r}",
+                "did_you_mean": ix.near_misses(con, doc_id, sheet),
+                "hint": "Sheet numbering differs between firms. Use find_schedule to "
+                        "locate a schedule by content instead of guessing a number.",
+            })
         doc = fitz.open(path)
         try:
             page = doc[page_no - 1]
@@ -391,6 +426,137 @@ def search_sheets(doc_id: str, query: str, limit: int = 20) -> str:
         con.close()
 
 
+@mcp.tool()
+def find_schedule(doc_id: str, kind: str = "door", read_tables: bool = True) -> str:
+    """Find a schedule by WHAT IT SAYS, not where it sits. Start every takeoff here.
+
+    Sheet numbering is a per-firm convention: the door schedule is on A2.2 in one set and
+    page 31 of the next, and 60% of some sets have no parseable sheet number at all. This
+    ranks every sheet by how much of the kind's vocabulary it carries, then reads tables on
+    the best candidates only - a whole-document table scan costs ~200s and finds 500+
+    tables, because title blocks and revision blocks are ruled grids too.
+
+    kind: door | hardware | accessory | finish | window | room | equipment | partition
+
+    ALWAYS read `not_searchable` before concluding a schedule is absent. A sheet whose text
+    was outlined to vectors is invisible to search until it has been rendered and read, so
+    zero hits with a non-zero not_searchable means "look at those sheets", NOT "no such
+    schedule exists". Pass the winning sheet to read_schedule for the full table.
+    """
+    kinds = sorted(ix.SCHEDULE_VOCAB)
+    terms = ix.SCHEDULE_VOCAB.get(kind.strip().lower())
+    if not terms:
+        return json.dumps({"error": f"unknown kind {kind!r}", "kinds": kinds})
+
+    con = _con()
+    try:
+        _doc_row(con, doc_id)
+        # One OR query over quoted phrases: FTS ranks, we count per-sheet hits to break ties.
+        query = " OR ".join(f'"{t}"' for t in terms)
+        try:
+            rows = con.execute(
+                "SELECT page, source, body FROM sheet_text "
+                "WHERE doc_id=? AND sheet_text MATCH ? LIMIT 60",
+                (doc_id, query)).fetchall()
+        except Exception as e:
+            return json.dumps({"error": f"FTS query failed: {e}"})
+
+        scored = {}
+        for page, source, body in rows:
+            low = (body or "").lower()
+            hits = sum(low.count(t) for t in terms)
+            matched = sorted({t for t in terms if t in low})
+            prev = scored.get(page)
+            if not prev or hits > prev["hits"]:
+                scored[page] = {"page": page, "hits": hits, "matched": matched,
+                                "found_in": source}
+        # Rank on DISTINCT vocabulary matched, then raw count. A real schedule uses the
+        # whole column vocabulary once each ("door no", "door type", "frame type",
+        # "door schedule"); a detail sheet repeats one phrase in callouts that say "SEE
+        # DOOR SCHEDULE". Counting occurrences ranks the reference above the schedule -
+        # measured on Dutch Bros, where A8.1 DETAILS scored 8 hits from 2 phrases and beat
+        # the actual door schedule on A2.2 with 6 hits from 4.
+        ranked = sorted(scored.values(),
+                        key=lambda r: (-len(r["matched"]), -r["hits"], r["page"]))
+
+        for cand in ranked:
+            meta = con.execute(
+                "SELECT sheet_no, title, discipline, vision_status FROM sheets "
+                "WHERE doc_id=? AND page=?", (doc_id, cand["page"])).fetchone()
+            if meta:
+                cand.update(sheet=meta[0], title=meta[1], discipline=meta[2],
+                            vision_status=meta[3])
+
+        # Two different kinds of blindness, and both have to be zero before absence means
+        # anything. A sheet with no indexed text is invisible to search outright; a sheet
+        # that extracted fine but has never been looked at can still hold a schedule drawn
+        # as outlined text or readable only as geometry.
+        blind = con.execute(
+            "SELECT page FROM sheets s WHERE s.doc_id=? "
+            "AND NOT EXISTS (SELECT 1 FROM sheet_text t WHERE t.doc_id=s.doc_id "
+            "AND t.page=s.page) ORDER BY page", (doc_id,)).fetchall()
+        placeholders = ",".join("?" * len(ix.OUT_OF_SCOPE_DISCIPLINES))
+        unread = con.execute(
+            f"SELECT page FROM sheets WHERE doc_id=? AND vision_status='required' "
+            f"AND discipline NOT IN ({placeholders}) ORDER BY page",
+            (doc_id, *ix.OUT_OF_SCOPE_DISCIPLINES)).fetchall()
+
+        out = {
+            "kind": kind, "kinds": kinds, "vocabulary": terms,
+            "candidates": ranked[:8],
+            "not_searchable": {
+                "count": len(blind),
+                "pages": [b[0] for b in blind[:20]],
+                "meaning": "These sheets have no indexed text at all - search cannot see "
+                           "them. render_sheet + record_vision_reading before concluding "
+                           "this schedule is not in the set.",
+            },
+            "unread_drawings": {
+                "count": len(unread),
+                "pages": [u[0] for u in unread[:20]],
+                "meaning": "These sheets extracted text but have never been looked at. A "
+                           "schedule drawn as outlined text, or a count that only exists "
+                           "as tags, is not in the search index.",
+            },
+        }
+
+        # Tables from the top candidates only, and never a whole-document scan.
+        if read_tables and ranked:
+            path, _ = _doc_row(con, doc_id)
+            doc = fitz.open(path)
+            try:
+                for cand in ranked[:MAX_SCHEDULE_CANDIDATES]:
+                    t0 = time.time()
+                    tables = ix.page_tables(doc[cand["page"] - 1])
+                    cand["tables"] = tables
+                    cand["tables_found"] = len(tables)
+                    # One pathological sheet must not hang a takeoff. Later candidates
+                    # keep their ranking; the caller can read_schedule them directly.
+                    if time.time() - t0 > SCHEDULE_TABLE_BUDGET_S:
+                        cand["note"] = "slow sheet; remaining candidates not table-read"
+                        break
+            finally:
+                doc.close()
+
+        if not ranked:
+            unseen = len(blind) + len(unread)
+            out["absence_established"] = unseen == 0
+            out["next_step"] = (
+                f"No sheet mentions the {kind} vocabulary. "
+                + (f"This is NOT evidence the schedule is absent: {len(blind)} sheet(s) "
+                   f"have no text at all and {len(unread)} have never been looked at. "
+                   "render_sheet + record_vision_reading those, then search again."
+                   if unseen else
+                   "Every sheet is searchable and every drawing has been read, so this set "
+                   f"genuinely does not carry a {kind} schedule. Report it with a gap tag - "
+                   "and check whether the requirement is stated as keynotes or in the "
+                   "specification instead, which is common for Division 10.")
+            )
+        return json.dumps(out, indent=2, default=str)
+    finally:
+        con.close()
+
+
 TILE_OVERLAP = 0.06  # callouts sit at tile edges; without overlap they get cut mid-word
 
 
@@ -410,12 +576,16 @@ def _tiles(rect, cols, rows):
 
 @mcp.tool()
 def render_sheet(doc_id: str, sheet: str, tile: str = "", dpi: int = DEFAULT_DPI,
-                 cols: int = DEFAULT_COLS, rows: int = DEFAULT_ROWS,
+                 cols: int = 0, rows: int = 0,
                  region: str = "") -> list:
     """Render a sheet as image tiles for your vision model to read.
 
     A 36x24in sheet rendered whole is unreadable (9pt notes land at ~5px after
     downsampling). Split into a 3x2 grid the same text lands at ~16px.
+
+    cols/rows default to 0, meaning "work it out from this sheet's real size" - plan sets
+    are not all 36x24, and a fixed 3x2 over-tiles a small sheet and under-tiles a large one.
+    Pass explicit values to override.
 
     tile:   '' returns every tile in the grid; 'r1c2' returns just that one.
     region: 'x0,y0,x1,y1' in inches from the top-left, to zoom a detail.
@@ -427,7 +597,9 @@ def render_sheet(doc_id: str, sheet: str, tile: str = "", dpi: int = DEFAULT_DPI
         path, _ = _doc_row(con, doc_id)
         page_no = ix.resolve_page(con, doc_id, sheet)
         if page_no is None:
-            return [{"type": "text", "text": f"no sheet or page matching {sheet!r}"}]
+            hits = ", ".join(m["sheet"] for m in ix.near_misses(con, doc_id, sheet))
+            return [{"type": "text", "text": f"no sheet or page matching {sheet!r}"
+                     + (f"; this set numbers sheets like: {hits}" if hits else "")}]
         doc = fitz.open(path)
         try:
             page = doc[page_no - 1]
@@ -439,7 +611,11 @@ def render_sheet(doc_id: str, sheet: str, tile: str = "", dpi: int = DEFAULT_DPI
                              "text": "region must be 'x0,y0,x1,y1' in inches"}]
                 targets = {"region": fitz.Rect(x0, y0, x1, y1)}
             else:
-                grid = _tiles(page.rect, max(1, cols), max(1, rows))
+                # Tile to a readable span rather than a fixed grid: a 36x24 sheet lands on
+                # 3x2 as before, an 11x17 detail sheet on 1x2 instead of being cut into six.
+                auto_c = max(1, round(page.rect.width / 72 / TILE_TARGET_IN))
+                auto_r = max(1, round(page.rect.height / 72 / TILE_TARGET_IN))
+                grid = _tiles(page.rect, max(1, cols or auto_c), max(1, rows or auto_r))
                 if tile:
                     if tile not in grid:
                         return [{"type": "text",
@@ -477,7 +653,12 @@ def record_vision_reading(doc_id: str, sheet: str, text: str, tile: str = "") ->
         _doc_row(con, doc_id)
         page = ix.resolve_page(con, doc_id, sheet)
         if page is None:
-            return json.dumps({"error": f"no sheet or page matching {sheet!r}"})
+            return json.dumps({
+                "error": f"no sheet or page matching {sheet!r}",
+                "did_you_mean": ix.near_misses(con, doc_id, sheet),
+                "hint": "Sheet numbering differs between firms. Use find_schedule to "
+                        "locate a schedule by content instead of guessing a number.",
+            })
         label = f"vision:{tile}" if tile else "vision"
         con.execute("DELETE FROM sheet_text WHERE doc_id=? AND page=? AND source=?",
                     (doc_id, page, label))
@@ -499,11 +680,15 @@ def record_vision_reading(doc_id: str, sheet: str, text: str, tile: str = "") ->
             con.execute("UPDATE sheets SET sheet_no=?, discipline=?, "
                         "confidence='vision' WHERE doc_id=? AND page=?",
                         (found, ix.discipline_of(found), doc_id, page))
-        con.execute("UPDATE sheets SET vision_need='none' WHERE doc_id=? AND page=?",
-                    (doc_id, page))
+        # vision_need drops to 'none' because the gap is now filled; vision_status becomes
+        # 'recorded' so a later phase gate can tell "a drawing that was read" apart from
+        # "a drawing nobody ever needed to read".
+        con.execute("UPDATE sheets SET vision_need='none', vision_status='recorded' "
+                    "WHERE doc_id=? AND page=?", (doc_id, page))
         con.commit()
         return json.dumps({"page": page, "recorded_chars": len(text),
-                           "sheet_no_set": found, "vision_need": "none"})
+                           "sheet_no_set": found, "vision_need": "none",
+                           "vision_status": "recorded"})
     finally:
         con.close()
 
@@ -527,16 +712,46 @@ def plan_overview(doc_id: str) -> str:
                 "pages": f"{rows[0][0]}-{rows[-1][0]}",
                 "examples": [r[1] or f"p{r[0]}" for r in rows[:6]],
             })
-        for need in ("full", "identity"):
+        for need in ("full", "identity", "drawing"):
             rows = con.execute(
                 "SELECT page FROM sheets WHERE doc_id=? AND vision_need=? "
                 "ORDER BY page", (doc_id, need)).fetchall()
             out[f"needs_vision_{need}"] = [r[0] for r in rows]
+        # Drawings nobody has read yet. This is the Phase 3 gate's input: a quantity taken
+        # off a sheet in this list came from the text layer alone, which cannot see a tag
+        # count or a dimension.
+        #
+        # Filtered by EXCLUDING positively out-of-scope disciplines, never by including an
+        # allow list. An allow list drops 'Unknown', and an unparseable sheet number is
+        # exactly what produces 'Unknown' - 52 of the 87-sheet reference Bid Set. Those
+        # sheets were flagged as needing vision and then quietly omitted from the list the
+        # gate reads.
+        placeholders = ",".join("?" * len(ix.OUT_OF_SCOPE_DISCIPLINES))
+        outstanding = con.execute(
+            f"SELECT page, sheet_no, title FROM sheets WHERE doc_id=? AND "
+            f"vision_status='required' AND discipline NOT IN ({placeholders}) "
+            "ORDER BY page", (doc_id, *ix.OUT_OF_SCOPE_DISCIPLINES)).fetchall()
+        out["vision_outstanding"] = [
+            {"page": p, "sheet_no": s, "title": t} for p, s, t in outstanding]
+
+        # Sheets the indexer could not name. Reported separately so an odd numbering
+        # scheme is visible as a fact about the set rather than silence.
+        unnamed = con.execute(
+            "SELECT page FROM sheets WHERE doc_id=? AND (sheet_no IS NULL OR sheet_no='') "
+            "ORDER BY page", (doc_id,)).fetchall()
+        out["unidentified"] = {
+            "count": len(unnamed),
+            "pages": [u[0] for u in unnamed[:40]],
+            "meaning": "No sheet number could be parsed. These are treated as in scope and "
+                       "appear in vision_outstanding - cite them by page number.",
+        }
         out["next_step"] = (
-            "Call render_sheet on the pages listed in needs_vision_full / "
-            "needs_vision_identity, read the tiles, then record_vision_reading."
-        ) if (out["needs_vision_full"] or out["needs_vision_identity"]) else (
-            "Whole set has a text layer; search_sheets covers everything.")
+            f"{len(outstanding)} sheet(s) still need a visual read. "
+            "render_sheet each, read the tiles, then record_vision_reading. "
+            "Do not take off quantities from these sheets until you have. "
+            "find_schedule locates a schedule without knowing its sheet number."
+        ) if outstanding else (
+            "Every in-scope sheet has been read; search_sheets covers everything.")
         return json.dumps(out, indent=2)
     finally:
         con.close()

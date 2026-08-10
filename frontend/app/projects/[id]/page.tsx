@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
 import { catalogIndexReady, listVendors } from '@/lib/catalog';
 import { ScopedChat } from '@/components/chat/scoped-chat';
+import { ProjectActions } from '@/components/projects/project-actions';
 import { ProjectDetail } from '@/components/projects/project-detail';
+import { ChromeSetter } from '@/components/shell/chrome-setter';
 import { Page, PageHeader, HeaderStat } from '@/components/shell/page-header';
 import type { Project } from '@/types/events';
 
@@ -27,6 +29,7 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
 
   return (
     <Page>
+      <ChromeSetter title={project.name} status={`plans/${project.slug}`} />
       <PageHeader
         eyebrow={
           <Link href="/projects" className="hover:text-ink transition-colors">
@@ -42,6 +45,13 @@ export default async function ProjectPage({ params }: PageProps<'/projects/[id]'
               value={new Date(project.created_at).toLocaleDateString('en-GB')}
             />
           </>
+        }
+        actions={
+          <ProjectActions
+            projectId={project.id}
+            name={project.name}
+            afterDeleteHref="/projects"
+          />
         }
       />
       <ProjectDetail projectId={project.id} />

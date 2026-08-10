@@ -22,12 +22,7 @@ function clampWidth(n: number, viewport: number): number {
 }
 
 /**
- * The chat for whatever page you are on, in a panel beside it.
- *
- * Deliberately not a route: the question "what is in this bid set" is asked while
- * looking at the bid set, and navigating away to ask it loses the thing you were
- * pointing at. Collapsed by default so it never competes with the page for width.
- * Drag the left edge to stretch, like a Cursor side panel.
+ * Quote Desk companion dock — same ChatPanel chrome as /chat, opened beside the page.
  */
 export function ScopedChat({
   scope,
@@ -64,7 +59,6 @@ export function ScopedChat({
   useEffect(() => {
     if (!dragging) return;
 
-    // Dragging the left edge: move left → wider, move right → narrower.
     const onMove = (event: PointerEvent) => {
       const next = clampWidth(startW.current + (startX.current - event.clientX), window.innerWidth);
       setWidth(next);
@@ -103,9 +97,9 @@ export function ScopedChat({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="bg-signal text-primary-foreground hover:bg-signal/90 fixed right-5 bottom-5 z-40 flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium shadow-lg transition-colors"
+        className="border-rule bg-panel text-ink hover:border-signal hover:text-signal fixed right-4 bottom-4 z-40 flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-[12px] font-medium shadow-[var(--elev-overlay)] transition-colors"
       >
-        <MessageSquare className="size-4" />
+        <MessageSquare className="size-3.5" aria-hidden />
         {definition.title}
       </button>
     );
@@ -114,13 +108,13 @@ export function ScopedChat({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/20 lg:hidden"
+        className="fixed inset-0 z-40 bg-black/25 lg:hidden"
         onClick={() => setOpen(false)}
         aria-hidden
       />
       <aside
-        className="border-rule bg-paper fixed top-0 right-0 z-50 flex h-full flex-col border-l"
-        style={{ width: `min(100vw, ${width}px)` }}
+        className="desk-chrome border-rule fixed top-0 right-0 z-50 flex h-full flex-col border-l"
+        style={{ width: `min(100vw, ${width}px)`, boxShadow: 'var(--elev-overlay)' }}
         aria-label={definition.title}
       >
         <div
@@ -140,6 +134,7 @@ export function ScopedChat({
         />
         <header className="border-rule flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
+            <p className="t-eyebrow mb-1">Companion</p>
             <p className="truncate text-[13px] font-semibold">{definition.title}</p>
             <p className="text-ink-muted truncate text-[11px]">
               {context?.projectName || context?.vendorFolder || 'This page only'}
@@ -154,9 +149,7 @@ export function ScopedChat({
             <X className="size-4" />
           </button>
         </header>
-        <div className="flex min-h-0 flex-1 flex-col">
-          {/* Keyed on the subject: moving to another vendor starts that vendor's
-              conversation with a clean transcript instead of inheriting the last one. */}
+        <div className="bg-paper flex min-h-0 flex-1 flex-col">
           <ChatPanel
             key={sessionKey(scope, context)}
             scope={scope}

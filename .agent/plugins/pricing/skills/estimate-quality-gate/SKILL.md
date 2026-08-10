@@ -9,6 +9,27 @@ Run this before any takeoff or draft leaves your hands, and on anything a specia
 subagent returns. It is the thing that catches a confident wrong answer while it is still
 cheap.
 
+**Part of this gate is now executed, not advised.** `format_cbc_proposal` blocks a package
+and returns NOT READY — and the frontend refuses to write a workbook — when any of these
+fail. Build your lines to satisfy them or the export will not happen:
+
+| Field on every line | Why |
+|---|---|
+| `cost_source` + `cost_source_detail` | which sourcing path produced the cost |
+| `quantity_source` | `schedule:<sheet> row <tag>` · `tag_count:<sheet>` · `vision:<sheet>` · `estimator_confirmed`. A quantity nobody read is a guess |
+| `size_source` | required whenever the description states a size |
+| `components[]` | every component of a named hardware group, each priced or carrying an exclusion tag |
+| `assembly_accounted` | set once the door leaf and frame are priced or RFQ-tagged |
+| `substitution_note` | required when `manufacturer` differs from `specified_manufacturer` |
+| `state` on the proposal | no default. Read the project address off the cover sheet |
+
+The gate was extended after a Dutch Bros package totalled **$107.12 for four hollow metal
+openings**: every line named a hardware group and priced only its threshold, the door
+leaves and frames were never quoted or excluded, grab bar sizes and quantities were
+invented against a schedule that states neither, Marlite was silently swapped for NUDO, and
+a Virginia job was taxed at Ohio's 8%. Every line had a valid `cost_source`. That is why
+provenance alone is not enough.
+
 ## 1. Phase prerequisites
 
 Work the phases in `cbc-phase-gates` in order. Before accepting a deliverable, check the
@@ -18,7 +39,7 @@ phase that produced it actually had what it needed:
 |---|---|
 | Scope declaration | a `doc_id` per plan PDF and the shelf's coverage |
 | Schedules | the spec's hardware sets read, in-scope and out-of-scope declared |
-| Takeoff | schedules read with `read_schedule`, not flat text |
+| Takeoff | schedules read with `read_schedule`, not flat text — **and every in-scope sheet in `plan_overview.vision_outstanding` read with `render_sheet` + `record_vision_reading` first** |
 | Pricing | every item enumerated with tag, quantity, size, finish |
 | Proposal | every line has cost, cost_source, margin, sale_ea, ext_sale |
 
@@ -71,8 +92,10 @@ loop, and never let a failed lookup become a guess.
 ## 6. What a specialist must hand back
 
 When delegating to `door-hardware-estimator`, `specialties-estimator` or
-`pricing-calculator`, give it the `doc_id`, the sheet numbers, and the project mode — and
-require these fields back.
+`pricing-calculator`, give it the `doc_id` and the project mode — **not** sheet numbers.
+The subagent runs `find_schedule` itself and reports which sheet it read; a sheet number
+passed down from a caller who has not opened the set is a guess, and numbering differs
+between firms. Require these fields back.
 
 **Door line**
 ```json

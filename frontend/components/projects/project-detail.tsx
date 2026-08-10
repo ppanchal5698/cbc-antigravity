@@ -54,8 +54,6 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
     };
   }, [load]);
 
-  // The worker writes Windows or POSIX paths depending on the host; take the
-  // last segment either way.
   const outputs = new Set(
     runs
       .map((run) => run.output_path)
@@ -63,19 +61,40 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
       .map((path) => path.split(/[\\/]/).pop() ?? path),
   );
 
+  const outputRunIds = new Map<string, string>();
+  for (const run of runs) {
+    if (run.status !== 'completed' || !run.output_path) continue;
+    const name = run.output_path.split(/[\\/]/).pop() ?? run.output_path;
+    outputRunIds.set(name, run.id);
+  }
+
   const filenameFor = (run: RunSummary): string =>
     files.find((file) => file.id === run.file_id)?.filename ?? 'Whole project folder';
 
+  const ready = runs.filter((r) => r.status === 'completed');
+  const active = runs.filter((r) => r.status === 'pending' || r.status === 'running');
+
   return (
     <>
-      <Section label="Upload">
+      <Section
+        label="1 · Upload"
+        aside={files.length === 0 ? 'Start here' : undefined}
+      >
         <UploadDrop projectId={projectId} onUploaded={() => void load()} />
       </Section>
 
       <Section
-        label="Estimates"
+        label="2 · Estimates"
         panel
-        aside={runs.length ? `${runs.length} runs` : undefined}
+        aside={
+          ready.length
+            ? `${ready.length} ready for review`
+            : active.length
+              ? `${active.length} in flight`
+              : runs.length
+                ? `${runs.length} runs`
+                : undefined
+        }
       >
         {runs.length ? (
           <div>
@@ -96,9 +115,16 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         )}
       </Section>
 
-      <Section label="Folder" panel aside="plans/…">
+      <Section label="3 · Folder" panel aside="plans/…">
         <div className="p-3">
-          <FileTree entries={entries} outputPaths={outputs} />
+          <FileTree
+            projectId={projectId}
+            entries={entries}
+            files={files}
+            outputPaths={outputs}
+            outputRunIds={outputRunIds}
+            onChanged={() => void load()}
+          />
         </div>
       </Section>
     </>

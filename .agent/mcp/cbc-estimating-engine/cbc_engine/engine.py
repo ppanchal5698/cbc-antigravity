@@ -35,6 +35,56 @@ COST_SOURCES = (
     "not_specified",
 )
 
+# Why a line has NO cost. Every value above answers "how was this cost obtained", which is
+# unanswerable for an item nobody on the shelf sells: a fire extinguisher cabinet (10 44 00)
+# has no sourcing path because it has no source. Without these the audit demanded a
+# provenance for a number that does not exist, the honest answer was to leave the field
+# blank, and blank is what the audit rejected - a deadlock no correct estimate could escape.
+#
+# These are not a way past the gate. A line claiming one must carry no money (checked
+# below), and "not carried" remains a claim about the shelf that has to be searched first.
+NO_COST_SOURCES = (
+    "not_carried",        # nothing on the shelf sells it; an outside RFQ is required
+    "owner_supplied",     # furnished by the owner or GC; CBC does not supply it
+    "excluded",           # deliberately out of CBC's scope, listed so it reads as considered
+)
+
+ALL_COST_SOURCES = COST_SOURCES + NO_COST_SOURCES
+
+# Where a quantity or a size came from. A number with no source is a guess, and a guess is
+# what turned "SIZE DEPENDANT ON INSTALLATION LOCATION" on the Dutch Bros accessory
+# schedule into three invented grab-bar sizes at qty 1 each.
+#
+# `schedule:` a row that states it. `tag_count:` instances counted on a sheet.
+# `vision:` read off a rendered drawing. `estimator_confirmed:` a human said so.
+QUANTITY_SOURCE_PREFIXES = ("schedule:", "tag_count:", "vision:", "estimator_confirmed")
+
+# A component the shelf cannot price is fine - silently dropping it is not. One of these
+# must appear on the component for it to count as accounted for.
+EXCLUSION_TAGS = (
+    "[not carried",
+    "[not indexed",
+    "[not stated",
+    "manual_wholesaler_net",
+    "vendor_rfq",
+    "owner_supplied",
+    "by_others",
+)
+
+# Assemblies that carry most of an opening's cost. When a line's description names one and
+# nothing in the line pays for it, the quote reads as complete and is not: on the Dutch Bros
+# set every door line described an "HM/HMD Door" and priced only its threshold.
+ASSEMBLY_TERMS = ("hollow metal", "hm door", "hm/hmd", "wood door", "door leaf", "frame")
+
+
+def _is_accounted(component: Dict[str, Any]) -> bool:
+    """True when a hardware component is either priced or explicitly excluded."""
+    if float(component.get("ext_sale") or component.get("cost") or 0.0) > 0:
+        return True
+    blob = " ".join(str(component.get(k, "")) for k in
+                    ("exclusion", "note", "cost_source", "description")).lower()
+    return any(tag in blob for tag in EXCLUSION_TAGS)
+
 
 def calculate_quote_line(
     cost: float,
@@ -976,18 +1026,29 @@ def format_cbc_proposal(
     accessories_lines: List[Dict[str, Any]],
     frp_lines: Optional[List[Dict[str, Any]]] = None,
     alternates_lines: Optional[List[Dict[str, Any]]] = None,
-    state: str = "OH",
+    state: Optional[str] = None,
     sales_tax_rate: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Format Phase 6 CBC draft proposal.
 
-    Every line is audited before it is totalled: a line with no `cost_source`, or one that
-    was never verified against its catalog, is reported in `audit_failures` and the whole
-    package is held as NOT READY. The "every line carries an audit citation" rule is
-    enforced here because this is the last point before a number reaches a person.
+    Every line is audited before it is totalled and the whole package is held NOT READY if
+    anything fails. This is the last point before a number reaches a person, so the gate
+    asks not only "where did this cost come from" but "does this line deliver what its own
+    description promises":
+
+      - cost_source / cost_source_detail present and recognised
+      - every component of a named hardware group priced or explicitly excluded
+      - an assembly named in the description actually paid for
+      - quantity and size carrying a provenance rather than defaulting
+      - a substitution disclosed as one
+      - the project's state read, not assumed
+
+    `state` has no default on purpose. It used to default to "OH", which silently put Ohio
+    8% sales tax on a Virginia job.
     """
-    # Tax rule: Ohio ~8%, Kentucky 6.5%, all others = 0%
-    state_norm = state.strip().upper()
+    # Tax rule: Ohio ~8%, Kentucky 6.5%, all others = 0%. An unread state is a failure
+    # below, not a 0% guess - both a wrong rate and a wrong zero are wrong numbers.
+    state_norm = (state or "").strip().upper()
     if sales_tax_rate is None:
         if state_norm in ("OH", "OHIO"):
             sales_tax_rate = 0.080
@@ -1004,24 +1065,141 @@ def format_cbc_proposal(
         for i, line in enumerate(lines):
             label = line.get("tag") or line.get("description") or f"{block}[{i}]"
             src = line.get("cost_source", "")
+            sale = float(line.get("ext_sale") or 0.0)
             if not src or src == "not_specified":
                 audit_failures.append({
                     "line": label, "block": block, "problem": "no cost_source",
                     "fix": "Record which sourcing path produced this cost "
-                           f"({', '.join(s for s in COST_SOURCES if s != 'not_specified')}).",
+                           f"({', '.join(s for s in COST_SOURCES if s != 'not_specified')})"
+                           " - or, if this line carries no cost, say why with one of "
+                           f"({', '.join(NO_COST_SOURCES)}) and leave it at 0.",
                 })
-            elif src not in COST_SOURCES:
+            elif src not in ALL_COST_SOURCES:
                 audit_failures.append({
                     "line": label, "block": block,
                     "problem": f"unknown cost_source {src!r}",
-                    "fix": f"Must be one of: {', '.join(COST_SOURCES)}",
+                    "fix": f"Must be one of: {', '.join(ALL_COST_SOURCES)}",
+                })
+            elif src in NO_COST_SOURCES and sale > 0:
+                # Otherwise a line could claim money while claiming to have no source for it.
+                audit_failures.append({
+                    "line": label, "block": block,
+                    "problem": f"cost_source {src!r} says this line has no cost, "
+                               f"but it carries {sale}",
+                    "fix": "Either price it and name the sourcing path, or set it to 0.",
                 })
             if not line.get("cost_source_detail"):
                 audit_failures.append({
                     "line": label, "block": block, "problem": "no cost_source_detail",
                     "fix": "Cite the price book page and multiplier, the P21 PO, or the "
-                           "vendor quote reference.",
+                           "vendor quote reference - or, for a line with no cost, which "
+                           "sections were searched and what the estimator must do next.",
                 })
+
+            desc = str(line.get("description", ""))
+
+            # A line that has already declared it carries no cost, and carries none, has
+            # said everything the two checks below are asking for: what it is and why there
+            # is no number. Demanding a component breakdown or an assembly line for scope
+            # nobody sells is the same deadlock as demanding a sourcing path for a cost that
+            # does not exist - the estimate is correct and cannot be expressed.
+            declared_uncosted = src in NO_COST_SOURCES and sale <= 0
+
+            # A named hardware group must account for every component in it. The plan's own
+            # group schedule is the authority - not expand_hardware_set, which returns a
+            # generic reference list and would validate against the wrong parts.
+            group = line.get("hardware_group") or ""
+            if not declared_uncosted and (
+                    group or re.search(r"\b(hardware\s+)?group\s*\d", desc, re.I)):
+                components = line.get("components") or []
+                if not components:
+                    audit_failures.append({
+                        "line": label, "block": block,
+                        "problem": f"hardware group {group or 'named in description'} "
+                                   "has no enumerated components",
+                        "fix": "read_schedule the plan's hardware group table and list every "
+                               "component on the line as `components`, each priced or "
+                               "carrying an explicit exclusion tag.",
+                    })
+                else:
+                    missing = [c for c in components if not _is_accounted(c)]
+                    if missing:
+                        names = ", ".join(
+                            str(c.get("component") or c.get("description") or "?")
+                            for c in missing[:6])
+                        audit_failures.append({
+                            "line": label, "block": block,
+                            "problem": (
+                                f"hardware group {group or '(named in description)'} has "
+                                f"{len(components)} components, "
+                                f"{len(components) - len(missing)} accounted, "
+                                f"{len(missing)} neither priced nor excluded: {names}"),
+                            "fix": "Price each, or tag it [not carried on shelf — outside "
+                                   "RFQ required] / manual_wholesaler_net / [not indexed].",
+                        })
+
+            # An assembly named in the description but paid for by nothing. This is the
+            # largest single miss the gate exists to stop: a line reading "HM/HMD Door,
+            # Hardware Group 1" that only ever pays for a $32 threshold.
+            named = [] if declared_uncosted else [t for t in ASSEMBLY_TERMS if t in desc.lower()]
+            if named:
+                covered = float(line.get("ext_sale") or 0.0) > 0 or any(
+                    _is_accounted(c) for c in (line.get("components") or []))
+                if not covered or not line.get("assembly_accounted"):
+                    if not any(tag in desc.lower() for tag in EXCLUSION_TAGS):
+                        audit_failures.append({
+                            "line": label, "block": block,
+                            "problem": f"description names {named[0]!r} but the line carries "
+                                       "no priced or excluded door/frame assembly",
+                            "fix": "Price the leaf and frame, or tag them [not carried on "
+                                   "shelf — outside RFQ required] and set "
+                                   "assembly_accounted=true.",
+                        })
+
+            # Quantity and size must say where they came from.
+            qsrc = str(line.get("quantity_source", ""))
+            if not qsrc.startswith(QUANTITY_SOURCE_PREFIXES):
+                audit_failures.append({
+                    "line": label, "block": block,
+                    "problem": f"quantity {line.get('quantity', '?')} has no provenance",
+                    "fix": "Set quantity_source to one of "
+                           f"{', '.join(QUANTITY_SOURCE_PREFIXES)} - e.g. "
+                           "'schedule:A1.2 row PA-51' or 'tag_count:A5.1'. A quantity "
+                           "nobody read is a guess.",
+                })
+            if re.search(r"\d\s*(\"|''|in\b|inch)", desc) and not str(
+                    line.get("size_source", "")).startswith(QUANTITY_SOURCE_PREFIXES):
+                audit_failures.append({
+                    "line": label, "block": block,
+                    "problem": "description states a size with no size_source",
+                    "fix": "Cite the schedule row or the drawing the size was read from. "
+                           "A schedule saying 'size dependant on installation location' is "
+                           "not a size.",
+                })
+
+            # A substitution is legitimate; an undisclosed one is not. Reading NUDO off a
+            # schedule that specifies Marlite is a different product presented as the same.
+            spec_mfr = str(line.get("specified_manufacturer", "")).strip().lower()
+            quoted_mfr = str(line.get("manufacturer", "")).strip().lower()
+            if spec_mfr and quoted_mfr and spec_mfr != quoted_mfr:
+                if not line.get("substitution_note"):
+                    audit_failures.append({
+                        "line": label, "block": block,
+                        "problem": f"quoted {quoted_mfr!r} where the plan specifies "
+                                   f"{spec_mfr!r}, with no substitution_note",
+                        "fix": "Run lookup_crossover and record what was substituted, for "
+                               "what, and on whose authority.",
+                    })
+
+    # The project's state decides the tax. Reading it off the cover sheet is part of the
+    # takeoff; assuming it silently taxed a Virginia job at Ohio's rate.
+    if not state_norm:
+        audit_failures.append({
+            "line": "(proposal header)", "block": "tax",
+            "problem": "project state not stated, so the sales tax rate is unsourced",
+            "fix": "Read the project address from the cover sheet title block and pass "
+                   "`state`. CBC charges OH ~8% and KY 6.5%; everything else is 0%.",
+        })
 
     doors_sale = round(sum(l.get("ext_sale", 0.0) for l in door_lines), 2)
     doors_cost = round(sum(l.get("ext_cost", 0.0) for l in door_lines), 2)
@@ -1094,8 +1272,9 @@ def format_cbc_proposal(
         "status": (
             "DRAFT — Requires estimator review and approval before sending."
             if ready else
-            "NOT READY — lines are missing their cost source audit trail. "
-            "Fix every entry in audit_failures before this goes to an estimator."
+            "NOT READY — this package does not deliver what its lines describe. "
+            "Fix every entry in audit_failures before this goes to an estimator. "
+            "An incomplete quote that reads as complete is worse than no quote."
         ),
     }
     open_items = []

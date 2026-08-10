@@ -6,7 +6,7 @@
  * its tool guidance or two scopes end up sharing a conversation.
  */
 import assert from 'node:assert/strict';
-import { CHAT_SCOPES, scopeContract, sessionKey, type ChatScopeId } from './chat-scopes.ts';
+import { CHAT_SCOPES, scopeContract, sessionKey, subjectKey, sessionTitleFromMessage, type ChatScopeId } from './chat-scopes.ts';
 import { scopedChatPrompt, MARKDOWN_CONTRACT } from '../server/agy.ts';
 
 const ALL = Object.keys(CHAT_SCOPES) as ChatScopeId[];
@@ -54,6 +54,8 @@ for (const id of ALL) {
   assert.match(contract, /\[not stated\]/, `${id}: must offer the gap tags`);
   assert.match(contract, /Never supply a model/, `${id}: must forbid invented facts`);
   assert.match(contract, /Two failed tool attempts/, `${id}: must stop after two failures`);
+  assert.match(contract, /CBC commercial estimating/, `${id}: must carry the domain boundary`);
+  assert.match(contract, /Never write application source code/, `${id}: must refuse foreign code`);
 }
 
 const general = scopeContract('general');
@@ -98,5 +100,14 @@ assert.equal(
   sessionKey('project', { projectId: 'p1', projectName: 'Old name' }),
   sessionKey('project', { projectId: 'p1', projectName: 'New name' }),
 );
+
+assert.equal(subjectKey({}), '');
+assert.equal(subjectKey({ projectId: 'p1' }), 'p1');
+assert.equal(subjectKey({ vendorFolder: 'HAGER' }), 'HAGER');
+assert.equal(subjectKey({ projectId: 'p1', vendorFolder: 'HAGER' }), 'p1');
+
+assert.equal(sessionTitleFromMessage('short'), 'short');
+assert.ok(sessionTitleFromMessage('x'.repeat(80)).endsWith('…'));
+assert.ok(sessionTitleFromMessage('x'.repeat(80)).length <= 60);
 
 console.log('chat scope check passed');

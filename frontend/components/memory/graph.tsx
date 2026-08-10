@@ -33,8 +33,23 @@ const PADDING = 16;
 
 type Placed = { node: GraphNode; x: number; y: number; column: number };
 
-export function MemoryGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[] }) {
-  const [selected, setSelected] = useState<string | null>(null);
+export function MemoryGraph({
+  nodes,
+  edges,
+  selected: controlledSelected,
+  onSelect,
+}: {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  selected?: string | null;
+  onSelect?: (id: string | null) => void;
+}) {
+  const [internalSelected, setInternalSelected] = useState<string | null>(null);
+  const selected = controlledSelected !== undefined ? controlledSelected : internalSelected;
+  const setSelected = (id: string | null) => {
+    onSelect?.(id);
+    if (controlledSelected === undefined) setInternalSelected(id);
+  };
 
   const { placed, byId, width, height, columns } = useMemo(() => {
     const classes = COLUMN_ORDER.filter((cls) => nodes.some((node) => node.class === cls));

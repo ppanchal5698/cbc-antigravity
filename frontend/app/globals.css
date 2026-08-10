@@ -4,9 +4,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Soft-industrial professional tools.
-  Cool-neutral paper, restrained CBC navy, subtle radius and soft elevation.
-  Dense enough for estimators — not a marketing SaaS surface.
+  Quote Desk — CBC estimating workstation.
+  Cool paper field, CBC navy signal, ledger-first density.
+  Blueprint grid lives only on shell chrome, never on content.
 */
 
 @theme inline {
@@ -49,33 +49,52 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
-  --radius-xl: 10px;
-  --radius-2xl: 12px;
-  --radius-3xl: 14px;
-  --radius-4xl: 16px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 12px;
+  --radius-4xl: 14px;
 
   --shadow-panel: var(--elev-panel);
   --shadow-overlay: var(--elev-overlay);
+
+  --animate-page-enter: page-enter 120ms ease-out;
+  --animate-status-fade: status-fade 180ms ease;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes status-fade {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
 }
 
 :root {
-  --paper: #f7f8fa;
-  --paper-sunken: #eef0f3;
+  --paper: #f4f6f8;
+  --paper-sunken: #e9edf1;
   --panel: #ffffff;
-  --ink: #121418;
-  --ink-muted: #5c6570;
-  --rule: #dde1e6;
-  --rule-strong: #c5ccd4;
+  --ink: #101418;
+  --ink-muted: #5a6570;
+  --rule: #d5dce4;
+  --rule-strong: #b8c0ca;
   /* Same navy as the title block of the exported .xlsx. */
   --signal: #1a365d;
-  --signal-wash: #e8eef5;
+  --signal-wash: #e6eef6;
   --alert: #c8102e;
   --alert-wash: #fdeef0;
 
-  --elev-panel: 0 1px 2px rgba(18, 20, 24, 0.04), 0 1px 3px rgba(18, 20, 24, 0.06);
-  --elev-overlay: 0 8px 24px rgba(18, 20, 24, 0.12), 0 2px 6px rgba(18, 20, 24, 0.06);
+  --elev-panel: 0 1px 2px rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.05);
+  --elev-overlay: 0 10px 28px rgba(16, 20, 24, 0.14), 0 2px 6px rgba(16, 20, 24, 0.06);
 
-  --radius: 8px;
+  --radius: 6px;
   --background: var(--paper);
   --foreground: var(--ink);
   --card: var(--panel);
@@ -94,12 +113,14 @@
   --border: var(--rule);
   --input: var(--rule);
   --ring: var(--signal);
+
+  --grid-line: rgba(26, 54, 93, 0.06);
 }
 
 .dark {
-  --paper: #0e1014;
-  --paper-sunken: #161a20;
-  --panel: #1a1e26;
+  --paper: #0c0e12;
+  --paper-sunken: #14181f;
+  --panel: #181c24;
   --ink: #eef0f3;
   --ink-muted: #8b93a0;
   --rule: #2a303a;
@@ -108,8 +129,9 @@
   --signal-wash: #1a2533;
   --alert: #ff6b6b;
   --alert-wash: #2a1416;
-  --elev-panel: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
-  --elev-overlay: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --elev-panel: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --elev-overlay: 0 10px 28px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --grid-line: rgba(127, 168, 217, 0.07);
 }
 
 @layer base {
@@ -156,8 +178,25 @@
 }
 
 @layer components {
+  /* Blueprint grid — shell chrome only */
+  .desk-chrome {
+    background-color: var(--panel);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .page-enter {
+    animation: var(--animate-page-enter);
+  }
+
+  .status-fade {
+    animation: var(--animate-status-fade);
+  }
+
   .t-eyebrow {
-    @apply text-[11px] leading-none font-medium tracking-[0.04em] text-ink-muted;
+    @apply text-[11px] leading-none font-medium tracking-[0.05em] uppercase text-ink-muted;
   }
 
   .t-label {
@@ -165,11 +204,11 @@
   }
 
   .t-display {
-    @apply text-3xl leading-tight font-semibold tracking-[-0.02em] sm:text-4xl;
+    @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] sm:text-[2rem];
   }
 
   .t-figure {
-    @apply font-sans text-3xl leading-none font-semibold tracking-[-0.02em];
+    @apply font-sans text-[1.75rem] leading-none font-semibold tracking-[-0.02em];
     font-variant-numeric: tabular-nums lining-nums;
   }
 
@@ -178,7 +217,7 @@
   }
 
   .panel {
-    @apply border-rule bg-panel rounded-lg border;
+    @apply border-rule bg-panel rounded-md border;
     box-shadow: var(--elev-panel);
   }
 
@@ -186,10 +225,13 @@
     @apply w-full border-collapse text-[13px];
   }
   .ledger thead th {
-    @apply border-rule bg-sunken/60 border-b px-3 py-2 text-left text-[11px] font-medium tracking-[0.02em] text-ink-muted whitespace-nowrap;
+    @apply border-rule bg-sunken/70 border-b px-3 py-2 text-left text-[11px] font-medium tracking-[0.02em] text-ink-muted whitespace-nowrap;
   }
   .ledger tbody td {
-    @apply border-rule/70 border-b px-3 py-2 align-top;
+    @apply border-rule/70 border-b px-3 py-2.5 align-top;
+  }
+  .ledger tbody tr {
+    transition: background-color 100ms ease;
   }
   .ledger tbody tr:hover {
     background: var(--paper-sunken);

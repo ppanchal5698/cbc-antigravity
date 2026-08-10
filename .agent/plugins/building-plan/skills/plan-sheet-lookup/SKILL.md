@@ -16,6 +16,16 @@ locate, read structured, cross-check, verify, then answer.
 
 ## 1. Route by discipline
 
+**Numbering is conventional, not guaranteed.** The table below is a prior for reading a set
+quickly, never an address to resolve. Every firm numbers differently, and some sets carry no
+parseable sheet number at all — 52 of the 87 sheets in one reference bid set. So:
+
+- Looking for a **schedule**? Use `find_schedule(doc_id, kind)` and skip the table entirely.
+  It ranks by the schedule's own vocabulary, wherever it lives.
+- Narrowing by area? `list_sheets(doc_id, discipline=...)`, then confirm against the title.
+- A sheet number that does not resolve is a signal to **search**, not to guess again. The
+  error carries `did_you_mean` with this set's own numbering — read it.
+
 | Question is about | Discipline | Typical sheets |
 |---|---|---|
 | Layout, rooms, dimensions | Architectural | `A2.x` floor plans |
@@ -33,8 +43,8 @@ locate, read structured, cross-check, verify, then answer.
 | Fixtures, waste, vent, supply | Plumbing | `P2.x`, `P3.x` |
 | Site, grading, utilities, parking | Civil / Site | `C1xx`, `SP1.x` |
 
-`list_sheets(doc_id, discipline=...)` narrows the field. Numbering is
-conventional, not guaranteed — confirm against the sheet title.
+`list_sheets(doc_id, discipline=...)` narrows the field; confirm against the sheet title
+rather than trusting the number.
 
 **Most questions have two homes:** the specification (G-series, what the product
 must be) and the schedule (a drawing, what is actually installed here). Check

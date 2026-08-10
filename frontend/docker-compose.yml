@@ -42,6 +42,21 @@ services:
       AGENT_PORT: 8787
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       KEYRING_PASSWORD: ${KEYRING_PASSWORD:-}
+      # Email intake. Off unless INTAKE_ENABLED is set; see .env.example for the
+      # warning that goes with switching it on.
+      INTAKE_ENABLED: ${INTAKE_ENABLED:-0}
+      IMAP_HOST: ${IMAP_HOST:-imap.gmail.com}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_MAILBOX: ${IMAP_MAILBOX:-INBOX}
+      IMAP_USER: ${IMAP_USER:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      INTAKE_ALLOWED_SENDERS: ${INTAKE_ALLOWED_SENDERS:-}
+      INTAKE_POLL_MS: ${INTAKE_POLL_MS:-60000}
+      INTAKE_MAX_PER_CYCLE: ${INTAKE_MAX_PER_CYCLE:-5}
+      INTAKE_MAX_PER_SENDER_PER_DAY: ${INTAKE_MAX_PER_SENDER_PER_DAY:-20}
+      INTAKE_MAX_PENDING_RUNS: ${INTAKE_MAX_PENDING_RUNS:-25}
+      INTAKE_PLAN_CHECK_TIMEOUT_MS: ${INTAKE_PLAN_CHECK_TIMEOUT_MS:-120000}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
     volumes:
       # The host CBC workspace, read-only. Seeds the volume on first boot and is
       # never written to, so the Antigravity IDE's Windows paths stay intact.

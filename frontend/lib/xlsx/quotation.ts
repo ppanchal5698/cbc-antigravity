@@ -30,6 +30,13 @@ export type QuotationLine = {
   substitutionNotes?: string | null;
   unitCost?: number | null;
   marginRate?: number | null;
+  /**
+   * Where the number was READ. Not rendered in the workbook — CBC's template is fixed —
+   * but shown on the review screen, so an estimator can see which quantities came off a
+   * schedule row, which were counted on a drawing, and which nobody sourced at all.
+   */
+  quantitySource?: string | null;
+  sizeSource?: string | null;
 };
 
 export type QuotationData = {
@@ -64,7 +71,8 @@ export const HEADERS = [
   'Plan & Catalog Citations',
 ] as const;
 
-export const COLUMN_WIDTHS = [14, 18, 55, 8, 8, 16, 18, 28, 32] as const;
+/** B/C/H/I sized so long door descriptions and citations wrap instead of clipping. */
+export const COLUMN_WIDTHS = [14, 22, 70, 8, 8, 16, 18, 36, 48] as const;
 
 export const SECTION_TITLES = {
   doors: 'DIVISION 08 — DOORS, FRAMES & ARCHITECTURAL HARDWARE',
@@ -129,6 +137,35 @@ function headerAlignment(col: number): ExcelJS.Alignment['horizontal'] {
   if (col === 4 || col === 5) return 'center';
   if (col === 6 || col === 7) return 'right';
   return 'left';
+}
+
+const wrapTop: Partial<ExcelJS.Alignment> = {
+  horizontal: 'left',
+  vertical: 'top',
+  wrapText: true,
+};
+
+/**
+ * Approximate Excel row height for wrapped Calibri 11 text.
+ * `widthChars` is the column width unit ExcelJS uses (~character widths).
+ */
+export function wrappedRowHeight(
+  texts: Array<{ text: string; widthChars: number }>,
+  min = 22,
+  max = 90,
+): number {
+  let lines = 1;
+  for (const { text, widthChars } of texts) {
+    const value = text || '';
+    const cols = Math.max(widthChars * 0.9, 8);
+    let needed = 0;
+    for (const part of value.split(/\r?\n/)) {
+      needed += Math.max(1, Math.ceil(part.length / cols));
+    }
+    if (needed > lines) lines = needed;
+  }
+  // ~14pt per wrapped line plus a little padding for borders.
+  return Math.min(max, Math.max(min, 8 + lines * 14));
 }
 
 export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
@@ -213,37 +250,42 @@ export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
     const start = row;
     for (const line of lines) {
       ws.getCell(row, 1).value = line.tag;
-      ws.getCell(row, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(row, 1).alignment = { horizontal: 'center', vertical: 'top' };
       ws.getCell(row, 2).value = line.room;
-      ws.getCell(row, 2).alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getCell(row, 2).alignment = { ...wrapTop };
       ws.getCell(row, 3).value = line.description;
-      ws.getCell(row, 3).alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getCell(row, 3).alignment = { ...wrapTop };
       ws.getCell(row, 4).value = line.qty;
-      ws.getCell(row, 4).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(row, 4).alignment = { horizontal: 'center', vertical: 'top' };
       ws.getCell(row, 5).value = line.unit;
-      ws.getCell(row, 5).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(row, 5).alignment = { horizontal: 'center', vertical: 'top' };
 
       const unitCell = ws.getCell(row, 6);
       unitCell.value = line.unitSale;
       unitCell.numFmt = MONEY_FORMAT;
-      unitCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      unitCell.alignment = { horizontal: 'right', vertical: 'top' };
 
       // Live formula, so an estimator editing Qty or Unit Sale sees totals move.
       const extCell = ws.getCell(row, 7);
       extCell.value = { formula: `D${row}*F${row}` };
       extCell.numFmt = MONEY_FORMAT;
-      extCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      extCell.alignment = { horizontal: 'right', vertical: 'top' };
 
       ws.getCell(row, 8).value = line.costBasis;
-      ws.getCell(row, 8).alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getCell(row, 8).alignment = { ...wrapTop };
       ws.getCell(row, 9).value = line.citations;
-      ws.getCell(row, 9).alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getCell(row, 9).alignment = { ...wrapTop };
 
       for (let c = 1; c <= 9; c += 1) {
         ws.getCell(row, c).font = regularFont;
         ws.getCell(row, c).border = thinBorder;
       }
-      ws.getRow(row).height = 20;
+      ws.getRow(row).height = wrappedRowHeight([
+        { text: line.room, widthChars: COLUMN_WIDTHS[1] },
+        { text: line.description, widthChars: COLUMN_WIDTHS[2] },
+        { text: line.costBasis, widthChars: COLUMN_WIDTHS[7] },
+        { text: line.citations, widthChars: COLUMN_WIDTHS[8] },
+      ]);
       row += 1;
     }
     const end = row - 1;
@@ -305,7 +347,14 @@ export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
   ws.getCell(row, 6).font = boldFont;
   ws.getCell(row, 6).alignment = { horizontal: 'right', vertical: 'middle' };
   const taxCell = ws.getCell(row, 7);
-  taxCell.value = data.salesTaxAmount;
+  // Live formula over the base subtotal, not the model's arithmetic. An estimator who
+  // edits a unit price on the review screen expects the tax to follow; a literal silently
+  // keeps quoting the old basis. Falls back to the supplied amount when the label carries
+  // no rate to key off (exempt lines, or a note in place of a percentage).
+  const taxRate = taxRateFromLabel(data.salesTaxLabel);
+  taxCell.value = taxRate === null
+    ? data.salesTaxAmount
+    : { formula: `ROUND(G${baseRow}*${taxRate},2)` };
   taxCell.font = regularFont;
   taxCell.numFmt = MONEY_FORMAT;
   taxCell.alignment = { horizontal: 'right', vertical: 'middle' };
@@ -331,13 +380,19 @@ export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
   // --- terms and RFIs ------------------------------------------------------
   const bulletBlock = (title: string, items: string[]) => {
     sectionHeader(title);
+    // Merged A–I ≈ sum of column widths for wrap estimates.
+    const bulletWidth = COLUMN_WIDTHS.reduce((sum, w) => sum + w, 0);
     for (const item of items) {
       ws.mergeCells(row, 1, row, 9);
       const cell = ws.getCell(row, 1);
       cell.value = item;
       cell.font = italicFont;
-      cell.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
-      ws.getRow(row).height = 18;
+      cell.alignment = { horizontal: 'left', vertical: 'top', indent: 1, wrapText: true };
+      ws.getRow(row).height = wrappedRowHeight(
+        [{ text: item, widthChars: bulletWidth }],
+        22,
+        72,
+      );
       row += 1;
     }
   };
@@ -347,6 +402,19 @@ export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
   bulletBlock(SECTION_TITLES.rfis, data.rfis);
 
   return wb;
+}
+
+/**
+ * The tax rate out of a label like `Ohio Sales Tax (8.0%):` as a decimal, or null when the
+ * label states no percentage. Null means "write the amount as given" rather than "zero" -
+ * an unparsed label must not silently zero a real tax line.
+ */
+export function taxRateFromLabel(label: string): number | null {
+  const m = /\(\s*([\d.]+)\s*%\s*\)/.exec(label || '');
+  if (!m) return null;
+  const pct = Number(m[1]);
+  if (!Number.isFinite(pct) || pct < 0 || pct > 25) return null;
+  return pct / 100;
 }
 
 /** CBC's standard terms. Tax line is the only one that varies by state. */

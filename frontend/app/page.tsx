@@ -11,13 +11,14 @@ import type { RunStatus } from '@/types/events';
 
 export const dynamic = 'force-dynamic';
 
-type RecentRun = {
+type AttentionRun = {
   id: string;
   status: RunStatus;
   created_at: string;
   project_id: string;
   project_name: string;
   filename: string | null;
+  pending_lines: number;
 };
 
 type Totals = {
@@ -45,13 +46,6 @@ const EMPTY_TOTALS: Totals = {
   drafts: 0, awaiting_review: 0, approved: 0, quoted: null,
 };
 
-/**
- * Everything the overview counts, from the database rather than from a file.
- *
- * The headline figures used to come from `memory/active_project.json` - a record the
- * agent writes during a run - so the dashboard showed whatever the last estimate left
- * behind and never moved when a project or a file was added. These are the real rows.
- */
 async function loadTotals(): Promise<Totals> {
   const rows = await query<Totals>(
     `SELECT
@@ -76,17 +70,44 @@ async function loadTotals(): Promise<Totals> {
 }
 
 export default async function OverviewPage() {
-  const [totals, runs] = await Promise.all([
+  const [totals, attention] = await Promise.all([
     loadTotals().catch(() => EMPTY_TOTALS),
-    query<RecentRun>(
+    query<AttentionRun>(
       `SELECT r.id, r.status, r.created_at::text, r.project_id,
-              p.name AS project_name, f.filename
+              p.name AS project_name, f.filename,
+              COALESCE((
+                SELECT count(*)::int FROM quote_lines l
+                  JOIN quote_drafts d ON d.id = l.draft_id
+                 WHERE d.run_id = r.id
+                   AND l.acceptance = 'pending'
+                   AND l.deleted_at IS NULL
+                   AND d.status = 'draft'
+              ), 0) AS pending_lines
          FROM workflow_runs r
          JOIN projects p ON p.id = r.project_id
          LEFT JOIN files f ON f.id = r.file_id
-        ORDER BY r.created_at DESC
-        LIMIT 8`,
-    ).catch(() => [] as RecentRun[]),
+        WHERE r.status IN ('pending', 'running', 'failed')
+           OR (
+             r.status = 'completed'
+             AND EXISTS (
+               SELECT 1 FROM quote_drafts d
+                 JOIN quote_lines l ON l.draft_id = d.id
+                WHERE d.run_id = r.id
+                  AND d.status = 'draft'
+                  AND l.acceptance = 'pending'
+                  AND l.deleted_at IS NULL
+             )
+           )
+        ORDER BY
+          CASE r.status
+            WHEN 'running' THEN 0
+            WHEN 'pending' THEN 1
+            WHEN 'failed' THEN 2
+            ELSE 3
+          END,
+          r.created_at DESC
+        LIMIT 12`,
+    ).catch(() => [] as AttentionRun[]),
   ]);
 
   const active = await readActiveProject();
@@ -100,17 +121,25 @@ export default async function OverviewPage() {
   return (
     <Page>
       <PageHeader
-        eyebrow="CBC commercial estimating"
+        eyebrow="Resume desk"
         title="Overview"
         meta={
           <>
-            <HeaderStat label="Projects" value={count(totals.projects)} />
-            <HeaderStat label="Runs" value={count(totals.runs)} />
+            <HeaderStat label="In flight" value={totals.running ? count(totals.running) : '—'} />
             <HeaderStat
-              label="In flight"
-              value={totals.running ? count(totals.running) : '—'}
+              label="Awaiting review"
+              value={totals.awaiting_review ? count(totals.awaiting_review) : '—'}
             />
+            <HeaderStat label="Projects" value={count(totals.projects)} />
           </>
+        }
+        actions={
+          <Link
+            href="/projects"
+            className="bg-signal text-primary-foreground hover:bg-signal/90 rounded-md px-3 py-1.5 text-[12px] font-medium no-underline transition-colors"
+          >
+            Open projects
+          </Link>
         }
       />
 
@@ -128,99 +157,125 @@ export default async function OverviewPage() {
           }
         />
       ) : (
-        <FigureRow className="mt-2">
-          <Figure
-            label="Bid documents"
-            value={count(totals.files)}
-            note={`across ${totals.projects} ${totals.projects === 1 ? 'project' : 'projects'}`}
-          />
-          <Figure
-            label="Estimates run"
-            value={count(totals.completed)}
-            note={
-              totals.failed
-                ? `${totals.failed} failed`
-                : totals.running
-                  ? `${totals.running} in flight`
-                  : 'all settled'
+        <>
+          <Section
+            label="Needs attention"
+            panel
+            aside={
+              <Link href="/downloads" className="hover:text-ink transition-colors">
+                All downloads
+              </Link>
             }
-            tone={totals.failed ? 'alert' : 'ink'}
-          />
-          <Figure
-            label="Lines awaiting review"
-            value={count(totals.awaiting_review)}
-            note={`${totals.drafts} ${totals.drafts === 1 ? 'draft' : 'drafts'}, ${totals.approved} approved`}
-            tone={totals.awaiting_review ? 'alert' : 'ink'}
-          />
-          <Figure
-            label="Quoted (active lines)"
-            value={money(totals.quoted ?? 0)}
-            note="draft total, before tax and freight"
-            tone="signal"
-          />
-        </FigureRow>
+          >
+            {attention.length ? (
+              <div className="scroll-x">
+                <table className="ledger">
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th>Document</th>
+                      <th>State</th>
+                      <th className="text-right">When</th>
+                      <th className="text-right">Next</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attention.map((run) => (
+                      <tr key={run.id}>
+                        <td className="min-w-[12rem]">
+                          <Link
+                            href={`/projects/${run.project_id}`}
+                            className="hover:text-signal font-medium transition-colors"
+                          >
+                            {run.project_name}
+                          </Link>
+                        </td>
+                        <td className="text-ink-muted">{run.filename ?? 'Whole project folder'}</td>
+                        <td>
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <Marker tone={TONE[run.status]}>{run.status}</Marker>
+                            {run.pending_lines > 0 ? (
+                              <Marker tone="alert">{run.pending_lines} pending</Marker>
+                            ) : null}
+                          </span>
+                        </td>
+                        <td className="num text-ink-muted">
+                          {new Date(run.created_at).toLocaleString('en-GB', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                          })}
+                        </td>
+                        <td className="num">
+                          {run.status === 'completed' ? (
+                            <Link
+                              href={`/projects/${run.project_id}/runs/${run.id}/review`}
+                              className="bg-signal text-primary-foreground hover:bg-signal/90 inline-block rounded-md px-2 py-0.5 text-[11px] font-medium no-underline"
+                            >
+                              Review
+                            </Link>
+                          ) : run.status === 'failed' ? (
+                            <Link
+                              href={`/projects/${run.project_id}`}
+                              className="text-alert hover:text-ink text-[12px] font-medium no-underline"
+                            >
+                              Open project
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/projects/${run.project_id}`}
+                              className="text-signal hover:text-ink text-[12px] font-medium no-underline"
+                            >
+                              Watch
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6">
+                <Empty title="Nothing waiting. Start a new estimate from a project." />
+              </div>
+            )}
+          </Section>
+
+          <Section label="Desk totals">
+            <FigureRow>
+              <Figure
+                label="Bid documents"
+                value={count(totals.files)}
+                note={`across ${totals.projects} ${totals.projects === 1 ? 'project' : 'projects'}`}
+              />
+              <Figure
+                label="Estimates completed"
+                value={count(totals.completed)}
+                note={totals.failed ? `${totals.failed} failed` : 'settled runs'}
+                tone={totals.failed ? 'alert' : 'ink'}
+              />
+              <Figure
+                label="Lines awaiting review"
+                value={count(totals.awaiting_review)}
+                note={`${totals.drafts} drafts · ${totals.approved} approved`}
+                tone={totals.awaiting_review ? 'alert' : 'ink'}
+              />
+              <Figure
+                label="Quoted (active lines)"
+                value={money(totals.quoted ?? 0)}
+                note="draft total, before tax and freight"
+                tone="signal"
+              />
+            </FigureRow>
+          </Section>
+        </>
       )}
 
       <Section
-        label="Recent estimates"
-        panel
-        aside={
-          <Link href="/downloads" className="hover:text-ink transition-colors">
-            All downloads
-          </Link>
-        }
-      >
-        {runs.length ? (
-          <div className="scroll-x">
-            <table className="ledger">
-              <tbody>
-                {runs.map((run) => (
-                  <tr key={run.id}>
-                    <td className="min-w-[12rem]">
-                      <Link
-                        href={`/projects/${run.project_id}`}
-                        className="hover:text-signal font-medium transition-colors"
-                      >
-                        {run.project_name}
-                      </Link>
-                    </td>
-                    <td className="text-ink-muted">{run.filename ?? 'Whole project folder'}</td>
-                    <td>
-                      <Marker tone={TONE[run.status]}>{run.status}</Marker>
-                    </td>
-                    <td className="num text-ink-muted">
-                      {new Date(run.created_at).toLocaleString('en-GB', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                      })}
-                    </td>
-                    <td className="num">
-                      {run.status === 'completed' ? (
-                        <Link
-                          href={`/projects/${run.project_id}/runs/${run.id}/review`}
-                          className="text-signal hover:text-ink font-medium no-underline"
-                        >
-                          Review
-                        </Link>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-6">
-            <Empty title="No estimate runs yet." />
-          </div>
-        )}
-      </Section>
-
-      <Section
-        label="What the copilot can see"
+        label="Reference health"
         aside={
           <Link href="/shelf" className="hover:text-ink transition-colors">
             Open the shelf
@@ -258,8 +313,6 @@ export default async function OverviewPage() {
         </FigureRow>
       </Section>
 
-      {/* The agent's own job record, kept but clearly separated from the live counts
-          above - it reflects the last run the agent wrote, not the current database. */}
       {active ? (
         <Section label="Agent job record" aside={`Phase ${active.phaseCompleted} of 6`}>
           <div className="panel p-4">
@@ -273,7 +326,7 @@ export default async function OverviewPage() {
               </p>
             </div>
             {active.pricing ? (
-              <FigureRow className="pt-4">
+              <FigureRow className="border-0 pt-4 shadow-none">
                 <Figure label="Division 08" value={money(active.pricing.doors)} />
                 <Figure label="Division 10" value={money(active.pricing.accessories)} />
                 <Figure

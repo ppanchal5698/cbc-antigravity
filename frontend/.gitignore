@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but not the template. `.env*` was swallowing the one file that documents every
+# variable, so a new setting reached nobody else on the team. It holds no secrets.
+!.env.example
 
 # vercel
 .vercel

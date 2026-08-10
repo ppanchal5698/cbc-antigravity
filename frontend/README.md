@@ -1,9 +1,9 @@
 # CBC Estimating Copilot — web frontend
 
-Chat and document-processing UI for the CBC commercial estimating workspace. It
-drives the **Antigravity CLI** (`agy`) headlessly, streams the agent's real event
-feed to the browser, and turns a completed estimate into the fixed-template
-`.xlsx` CBC already produces by hand.
+Chat and document-processing UI for the CBC commercial estimating workspace — **Quote Desk**:
+a dense navy-anchored estimating workstation. It drives the **Antigravity CLI** (`agy`)
+headlessly, streams the agent's real event feed to the browser, and turns a completed
+estimate into the fixed-template `.xlsx` CBC already produces by hand.
 
 Everything runs in Docker: workspace volume + backup, `agy`, the UI, the workers
 and Postgres.
@@ -83,11 +83,11 @@ invokes the workspace's own `/run-estimate` workflow with
 
 Every output is a draft for estimator review. Nothing is sent to a customer.
 
-### Soft-industrial UI + FR-9 review
+### Quote Desk UI + FR-9 review
 
-The app shell uses a left sidebar (Work / Reference) and a compact top bar.
-After an estimate completes, open **Review** on the run
-(`/projects/<id>/runs/<runId>/review`) to accept, edit, reject, or add lines,
+The app shell uses a left sidebar (Work / Reference) with blueprint-grid chrome
+and a context-aware top bar. After an estimate completes, open **Review** on the
+run (`/projects/<id>/runs/<runId>/review`) to accept, edit, reject, or add lines,
 enter manual prices and substitution notes, then **Approve & export**. Approval
 regenerates the fixed-template `.xlsx` from the accepted lines; download is
 secondary until then.

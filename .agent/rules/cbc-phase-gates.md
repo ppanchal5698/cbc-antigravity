@@ -13,9 +13,9 @@ invent a different phase model.
 | Phase | What happens | Exit gate |
 |---|---|---|
 | **0 — Intake** | Receive the bid request; note alternates and the bid-due date. `open_plan_set` on each PDF (a bid may be one combined file or several). `list_catalogs` to confirm the shelf. | `doc_id` for every plan PDF; shelf coverage reported |
-| **1 — File setup** | Create the job record in `memory/active_project.json`: project, customer/initiator, state, mode. Templated mode reads the closest match in `memory/prior_quotes/`; one-off starts blank. | Job record written with `phase_completed: 1` |
+| **1 — File setup** | Create the job record in `memory/active_project.json`: project, customer/initiator, mode, and **the project's site address and state read off the cover sheet** — the site, not the franchisor's or architect's office, which sit in the same title block. Templated mode reads the closest match in `memory/prior_quotes/`; one-off starts blank. | Job record written with `phase_completed: 1`; `state` present and cited to a sheet |
 | **2 — Spec scoping** | Read the specification (G-series) for the Div 08 and Div 10 scope, fire ratings, and the hardware-set schedule. Declare out-of-scope trades now. | In-scope and out-of-scope both stated explicitly |
-| **3 — Drawing review & take-offs** | `read_schedule` every schedule sheet — never flat text. Enumerate openings, accessories, sizes, handing, rating, wall types. Quantities come from the drawings only. | Every item enumerated with tag, qty, size, finish; `verify_facts` clean |
+| **3 — Drawing review & take-offs** | **`find_schedule(doc_id, kind)` to locate — never guess a sheet number. `plan_overview` first: every sheet in `vision_outstanding` gets `render_sheet` + `record_vision_reading` before any quantity is taken off it.** Then `read_schedule` on what discovery returned — never flat text. Enumerate openings, accessories, sizes, handing, rating, wall types. Quantities come from the drawings only. | `vision_outstanding` empty; every item enumerated with tag, qty, size, finish and a `quantity_source`; `verify_facts` clean |
 | **3b — FRP take-off** | Perimeter LF, wall height, inside/outside corners → `calculate_frp_takeoff`. | Quantities produced, provisional-constants flag surfaced |
 | **4 — Pricing & build** | Cost each line by the sourcing order below, apply the margin band, `calculate_quote_line`. | Every line has cost, cost_source, margin, sale_ea, ext_sale |
 | **4b — Alternates & addenda** | Base bid and alternates priced as separate, comparable groups. **CBC has not confirmed this process** (Open Item 11) — raise it as an RFI rather than assuming a method. | Base and alternates kept separate; RFI raised |
@@ -24,6 +24,21 @@ invent a different phase model.
 
 **Do not skip forward.** If a phase's gate is unmet, say which gate and what is missing
 rather than producing the downstream deliverable anyway.
+
+**A sheet number is not an address.** Every set CBC receives is numbered differently, and
+some carry no parseable sheet number at all. Find content by what it says —
+`find_schedule(doc_id, kind)` — not by where it sat in the last set. A number that does not
+resolve returns `did_you_mean` with this set's own numbering: read it and search, do not
+guess again. And "no candidates" only means absent when `absence_established` is true;
+until every sheet has been read, silence is silence.
+
+**A schedule is not the whole drawing.** A CAD sheet's text layer flattens columns from
+unrelated tables into one stream, and it cannot see a tag count, a dimension or a revision
+cloud at all. When a schedule row states no quantity or no size — Dutch Bros A1.2 says
+`SIZE DEPENDANT ON INSTALLATION LOCATION` — the number lives on the plan or the elevation
+and must be read there. Do not default a quantity to 1, and never infer a size from the
+product's usual sizes. Record where each number came from in `quantity_source` /
+`size_source`; `format_cbc_proposal` rejects a line without them.
 
 ## Cost sourcing order (requirements 6.2 / FR-6)
 

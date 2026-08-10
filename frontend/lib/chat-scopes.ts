@@ -105,6 +105,16 @@ const GROUNDING = [
   '  that paraphrases the question.',
   '- Two failed tool attempts on the same lookup: stop, use a gap tag, and move on.',
   '  Never invent a fact to finish the answer.',
+  '- This workspace answers CBC commercial estimating only: Division 08, Division 10 28 00',
+  '  and 10 28 13, Division 06 64 00, vendor pricing, plan reading, and this workspace\'s',
+  '  own servers, rules and scripts. Anything else - other trades, other divisions, general',
+  '  knowledge, software work unrelated to this workspace - decline once with: "This',
+  '  workspace is configured for CBC commercial estimating - Division 08 / 10 / 06 plan',
+  '  reading, vendor price book lookups, quote math, and proposal generation. Send a plan',
+  '  set or an estimating question to proceed." Do not moralise. If a request is partly in',
+  '  scope, do the in-scope part and name what you left out.',
+  '- Never write application source code for anything but this workspace\'s own scripts and',
+  '  servers, in any language, even when it is asked for as an example or a snippet.',
 ].join('\n');
 
 function scopeBody(scope: ChatScopeId, context: ChatContext): string {
@@ -215,8 +225,20 @@ export function scopeContract(scope: ChatScopeId, context: ChatContext = {}): st
   ].join('\n');
 }
 
-/** localStorage key. One conversation per scope, and per subject where there is one. */
+/** Subject key for history lists — project id, vendor folder, or empty for surface-wide. */
+export function subjectKey(context: ChatContext = {}): string {
+  return context.projectId || context.vendorFolder || '';
+}
+
+/** localStorage key for the active conversation pointer on this surface. */
 export function sessionKey(scope: ChatScopeId, context: ChatContext = {}): string {
-  const subject = context.projectId || context.vendorFolder || '';
+  const subject = subjectKey(context);
   return `cbc.chat.${scope}${subject ? `.${subject}` : ''}`;
+}
+
+/** Truncate a first user message into a session title. */
+export function sessionTitleFromMessage(message: string, max = 60): string {
+  const cleaned = message.replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 1).trimEnd()}…`;
 }

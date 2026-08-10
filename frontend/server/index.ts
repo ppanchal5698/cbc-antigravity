@@ -8,10 +8,18 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { runAgy, scopedChatPrompt, AgyError, WORKSPACE_ROOT } from './agy.ts';
-import { CHAT_SCOPES, type ChatContext, type ChatScopeId } from '../lib/chat-scopes.ts';
+import { gate, REFUSAL_TEXT } from './gatekeeper.ts';
+import {
+  CHAT_SCOPES,
+  sessionTitleFromMessage,
+  subjectKey,
+  type ChatContext,
+  type ChatScopeId,
+} from '../lib/chat-scopes.ts';
 import { getRunBuffer, sseFrame, toFrames } from './events.ts';
 import { engineReference } from './engine-ref.ts';
 import { initDb, query } from './db.ts';
+import { startMailIntake } from './mail-intake.ts';
 import { startWorker } from './worker.ts';
 import type { StreamFrame } from '../types/events.ts';
 
@@ -46,23 +54,64 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
+type SessionRow = {
+  id: string;
+  conversation_id: string | null;
+  scope: string;
+  subject_key: string;
+  title: string | null;
+  preview: string | null;
+};
+
 /** Resolves the agy conversation id for a chat session, creating the row if new. */
 async function resolveSession(
   sessionId: string | undefined,
   projectId: string | null,
-): Promise<{ sessionId: string; conversationId: string | null }> {
+  scope: ChatScopeId,
+  subject: string,
+): Promise<{ sessionId: string; conversationId: string | null; isNew: boolean }> {
   if (sessionId) {
-    const rows = await query<{ id: string; conversation_id: string | null }>(
-      'SELECT id, conversation_id FROM chat_sessions WHERE id = $1',
+    const rows = await query<SessionRow>(
+      'SELECT id, conversation_id, scope, subject_key, title, preview FROM chat_sessions WHERE id = $1',
       [sessionId],
     );
-    if (rows[0]) return { sessionId: rows[0].id, conversationId: rows[0].conversation_id };
+    if (rows[0]) {
+      return {
+        sessionId: rows[0].id,
+        conversationId: rows[0].conversation_id,
+        isNew: false,
+      };
+    }
   }
   const rows = await query<{ id: string }>(
-    'INSERT INTO chat_sessions (project_id) VALUES ($1) RETURNING id',
-    [projectId],
+    `INSERT INTO chat_sessions (project_id, scope, subject_key)
+     VALUES ($1, $2, $3) RETURNING id`,
+    [projectId, scope, subject],
   );
-  return { sessionId: rows[0].id, conversationId: null };
+  return { sessionId: rows[0].id, conversationId: null, isNew: true };
+}
+
+async function persistTurn(
+  sessionId: string,
+  userMessage: string,
+  assistantMessage: string,
+  setTitle: boolean,
+): Promise<void> {
+  const title = setTitle ? sessionTitleFromMessage(userMessage) : null;
+  await query(
+    `UPDATE chat_sessions
+        SET updated_at = now(),
+            title = COALESCE(title, $2),
+            preview = $3
+      WHERE id = $1`,
+    [sessionId, title, sessionTitleFromMessage(userMessage, 120)],
+  );
+  await query(
+    `INSERT INTO chat_messages (session_id, role, content) VALUES
+       ($1, 'user', $2),
+       ($1, 'assistant', $3)`,
+    [sessionId, userMessage, assistantMessage],
+  );
 }
 
 async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -83,12 +132,22 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
       : typeof context.projectId === 'string'
         ? context.projectId
         : null;
+  const subject = subjectKey(context);
   const cwd = typeof body.cwd === 'string' && body.cwd ? body.cwd : WORKSPACE_ROOT;
 
   const session = await resolveSession(
     typeof body.sessionId === 'string' ? body.sessionId : undefined,
     projectId,
+    scope,
+    subject,
   );
+
+  // Title only on the first turn of a brand-new row, or when title is still null.
+  const existing = await query<{ title: string | null }>(
+    'SELECT title FROM chat_sessions WHERE id = $1',
+    [session.sessionId],
+  );
+  const needsTitle = !existing[0]?.title;
 
   res.writeHead(200, SSE_HEADERS);
   let id = 0;
@@ -99,10 +158,27 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   // Tells the client which session to resume next turn.
   res.write(`event: session\ndata: ${JSON.stringify({ sessionId: session.sessionId })}\n\n`);
 
+  // The domain gate, before the conversation is touched. A refused turn is persisted like
+  // any other so the transcript stays honest, but it spawns no agy and never enters the
+  // conversation's context.
+  // The screen is instant, but an ambiguous message costs a classifier round-trip. Say so,
+  // or the surface sits blank for ten seconds with nothing to show.
+  send({ kind: 'status', event: { ts: new Date().toISOString(), type: 'starting', detail: 'checking scope' } });
+  const verdict = await gate(message);
+  if (!verdict.allow) {
+    console.warn(`[gatekeeper] refused (${verdict.reason}): ${sessionTitleFromMessage(message, 120)}`);
+    send({ kind: 'token', text: REFUSAL_TEXT });
+    send({ kind: 'done', response: REFUSAL_TEXT });
+    await persistTurn(session.sessionId, message, REFUSAL_TEXT, needsTitle);
+    res.end();
+    return;
+  }
+
   const controller = new AbortController();
   res.on('close', () => controller.abort());
 
   const state = { sawText: false };
+  let assistantText = '';
   try {
     for await (const raw of runAgy({
       prompt: scopedChatPrompt(message, scope, context),
@@ -117,18 +193,119 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
             [frame.conversationId, session.sessionId],
           );
         }
+        if (frame.kind === 'token') {
+          assistantText += frame.text;
+        }
+        if (frame.kind === 'done') {
+          assistantText = frame.response || assistantText;
+          await persistTurn(session.sessionId, message, assistantText, needsTitle);
+        }
         send(frame);
       }
     }
   } catch (err) {
     if (!controller.signal.aborted) {
-      const message =
+      const errMessage =
         err instanceof AgyError ? err.message : err instanceof Error ? err.message : String(err);
-      send({ kind: 'error', message });
+      send({ kind: 'error', message: errMessage });
     }
   } finally {
     res.end();
   }
+}
+
+async function handleListSessions(url: URL, res: ServerResponse): Promise<void> {
+  const scopeParam = url.searchParams.get('scope') ?? 'general';
+  const scope: ChatScopeId =
+    scopeParam in CHAT_SCOPES ? (scopeParam as ChatScopeId) : 'general';
+  const subject = url.searchParams.get('subject') ?? '';
+
+  const rows = await query<{
+    id: string;
+    title: string | null;
+    preview: string | null;
+    updated_at: string;
+    created_at: string;
+  }>(
+    `SELECT id, title, preview, updated_at::text, created_at::text
+       FROM chat_sessions
+      WHERE scope = $1 AND subject_key = $2
+      ORDER BY updated_at DESC
+      LIMIT 100`,
+    [scope, subject],
+  );
+
+  json(res, 200, {
+    sessions: rows.map((row) => ({
+      id: row.id,
+      title: row.title || 'Untitled chat',
+      preview: row.preview,
+      updatedAt: row.updated_at,
+      createdAt: row.created_at,
+    })),
+  });
+}
+
+async function handleGetSession(sessionId: string, res: ServerResponse): Promise<void> {
+  const sessions = await query<{
+    id: string;
+    title: string | null;
+    preview: string | null;
+    scope: string;
+    subject_key: string;
+    updated_at: string;
+  }>(
+    `SELECT id, title, preview, scope, subject_key, updated_at::text
+       FROM chat_sessions WHERE id = $1`,
+    [sessionId],
+  );
+  const session = sessions[0];
+  if (!session) {
+    json(res, 404, { error: 'session not found' });
+    return;
+  }
+
+  const messages = await query<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    created_at: string;
+  }>(
+    `SELECT id, role, content, created_at::text
+       FROM chat_messages
+      WHERE session_id = $1
+      ORDER BY created_at ASC, id ASC`,
+    [sessionId],
+  );
+
+  json(res, 200, {
+    session: {
+      id: session.id,
+      title: session.title || 'Untitled chat',
+      preview: session.preview,
+      scope: session.scope,
+      subjectKey: session.subject_key,
+      updatedAt: session.updated_at,
+    },
+    messages: messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.created_at,
+    })),
+  });
+}
+
+async function handleDeleteSession(sessionId: string, res: ServerResponse): Promise<void> {
+  const rows = await query<{ id: string }>(
+    'DELETE FROM chat_sessions WHERE id = $1 RETURNING id',
+    [sessionId],
+  );
+  if (!rows[0]) {
+    json(res, 404, { error: 'session not found' });
+    return;
+  }
+  json(res, 200, { ok: true });
 }
 
 /** Live status feed for a background document run, with reconnect replay. */
@@ -207,6 +384,19 @@ const server = createServer((req, res) => {
         await handleChat(req, res);
         return;
       }
+      if (path === '/chat/sessions' && req.method === 'GET') {
+        await handleListSessions(url, res);
+        return;
+      }
+      const sessionMatch = path.match(/^\/chat\/sessions\/([0-9a-fA-F-]{36})$/);
+      if (sessionMatch && req.method === 'GET') {
+        await handleGetSession(sessionMatch[1], res);
+        return;
+      }
+      if (sessionMatch && req.method === 'DELETE') {
+        await handleDeleteSession(sessionMatch[1], res);
+        return;
+      }
       const runMatch = path.match(/^\/runs\/([0-9a-fA-F-]{36})\/events$/);
       if (runMatch && req.method === 'GET') {
         await handleRunEvents(runMatch[1], req, res);
@@ -228,6 +418,8 @@ process.on('unhandledRejection', (reason) => {
 
 await initDb();
 startWorker();
+// No-op unless INTAKE_ENABLED is set and IMAP credentials are present.
+startMailIntake();
 server.listen(PORT, () => {
   console.log(`[gateway] listening on :${PORT}, workspace ${WORKSPACE_ROOT}`);
 });

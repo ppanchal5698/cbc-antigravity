@@ -1,28 +1,20 @@
-import Link from 'next/link';
 import { query } from '@/lib/db';
+import { catalogIndexReady, listVendors } from '@/lib/catalog';
+import { ScopedChat } from '@/components/chat/scoped-chat';
 import { CreateProject } from '@/components/projects/create-project';
+import { ProjectList, type ProjectListRow } from '@/components/projects/project-list';
 import { Page, PageHeader, HeaderStat } from '@/components/shell/page-header';
 import { count } from '@/components/shell/figure';
-import { Empty, Failure, Marker } from '@/components/shell/state';
-import type { Project, RunStatus } from '@/types/events';
+import { Empty, Failure } from '@/components/shell/state';
 
 export const dynamic = 'force-dynamic';
 
-type Row = Project & {
-  file_count: number;
-  run_count: number;
-  completed: number;
-  failed: number;
-  running: number;
-  last_run: string | null;
-};
-
 export default async function ProjectsPage() {
-  let rows: Row[] = [];
+  let rows: ProjectListRow[] = [];
   let failure: string | null = null;
 
   try {
-    rows = await query<Row>(
+    rows = await query<ProjectListRow>(
       `SELECT p.*,
               (SELECT COUNT(*) FROM files f WHERE f.project_id = p.id)::int AS file_count,
               (SELECT COUNT(*) FROM workflow_runs r WHERE r.project_id = p.id)::int AS run_count,
@@ -36,6 +28,10 @@ export default async function ProjectsPage() {
   } catch (err) {
     failure = err instanceof Error ? err.message : String(err);
   }
+
+  const vendorFolders = catalogIndexReady()
+    ? listVendors().map((vendor) => vendor.folder)
+    : [];
 
   return (
     <Page>
@@ -58,57 +54,10 @@ export default async function ProjectsPage() {
           title="No projects yet. Name one above and a folder is created under plans/."
         />
       ) : (
-        <div className="panel scroll-x mt-4 overflow-hidden">
-          <table className="ledger">
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Folder</th>
-                <th className="text-right">Files</th>
-                <th className="text-right">Runs</th>
-                <th>State</th>
-                <th className="text-right">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((project) => (
-                <tr key={project.id}>
-                  <td className="min-w-[14rem]">
-                    <Link
-                      href={`/projects/${project.id}`}
-                      className="hover:text-signal text-[14px] font-medium transition-colors"
-                    >
-                      {project.name}
-                    </Link>
-                  </td>
-                  <td className="code text-ink-muted">plans/{project.slug}</td>
-                  <td className="num">{count(project.file_count)}</td>
-                  <td className="num">{count(project.run_count)}</td>
-                  <td>
-                    <span className="flex flex-wrap gap-1.5">
-                      {project.running > 0 ? (
-                        <Marker tone="signal">{project.running} running</Marker>
-                      ) : null}
-                      {project.completed > 0 ? (
-                        <Marker tone="ink">{project.completed} complete</Marker>
-                      ) : null}
-                      {project.failed > 0 ? (
-                        <Marker tone="alert">{project.failed} failed</Marker>
-                      ) : null}
-                      {project.run_count === 0 ? <Marker>No runs</Marker> : null}
-                    </span>
-                  </td>
-                  <td className="num text-ink-muted">
-                    {new Date(project.created_at).toLocaleDateString('en-GB')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ProjectList rows={rows} />
       )}
+
+      <ScopedChat scope="general" vendorFolders={vendorFolders} />
     </Page>
   );
 }
-
-export type { RunStatus };

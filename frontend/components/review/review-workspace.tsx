@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { ScopedChat } from '@/components/chat/scoped-chat';
+import { ChromeSetter } from '@/components/shell/chrome-setter';
 import { Page, PageHeader, HeaderStat, Section } from '@/components/shell/page-header';
 import { Figure, FigureRow, count, money } from '@/components/shell/figure';
 import { Empty, Failure, Marker } from '@/components/shell/state';
@@ -51,11 +53,55 @@ function toLocal(line: QuoteLineRow) {
   };
 }
 
+/**
+ * Where a number was read. Read-only: it is a record of what happened, not a field to fill
+ * in — editing the quantity re-stamps it as `estimator_confirmed` on the server.
+ *
+ * An unsourced quantity is called out rather than left blank, because blank is what a
+ * guess looks like. A quote once carried three invented grab-bar sizes at qty 1 each
+ * against a schedule that stated neither, and nothing on the screen said so.
+ */
+function Provenance({
+  label,
+  value,
+  optional = false,
+}: {
+  label: string;
+  value: string | null;
+  optional?: boolean;
+}) {
+  if (!value && optional) {
+    return (
+      <span className="text-ink-muted">
+        {label}: <span className="italic">n/a</span>
+      </span>
+    );
+  }
+  if (!value) {
+    return (
+      <span className="text-alert font-medium" title="This number has no recorded source.">
+        {label}: not sourced
+      </span>
+    );
+  }
+  const [kind, ...rest] = value.split(':');
+  const detail = rest.join(':');
+  return (
+    <span className="text-ink-muted">
+      {label}: <span className="text-ink font-mono">{kind}</span>
+      {detail ? <span className="font-mono"> {detail}</span> : null}
+    </span>
+  );
+}
+
 /** Parsed number, or the value already on the row when the field is empty or garbage. */
 function numberOr(text: string, fallback: number): number {
   const parsed = Number(text.replace(/[$,\s]/g, ''));
   return text.trim() !== '' && Number.isFinite(parsed) ? parsed : fallback;
 }
+
+const field =
+  'border-rule bg-panel w-full rounded-md border px-2 py-1.5 text-[12px] outline-none focus:border-signal disabled:opacity-50';
 
 function LineEditor({
   line,
@@ -70,10 +116,6 @@ function LineEditor({
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState(() => toLocal(line));
 
-  // Reset only when this editor is showing a genuinely different row. Keying the reset
-  // on the whole `line` object meant every save - which replaces the object - wiped
-  // whatever the estimator had started typing in another field. Adjusting state during
-  // render is React's documented alternative to a setState-in-effect.
   const [shownId, setShownId] = useState(line.id);
   if (shownId !== line.id) {
     setShownId(line.id);
@@ -110,129 +152,201 @@ function LineEditor({
     }
   };
 
+  const actions = (
+    <div className="flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => void setAcceptance('accepted')}
+        className={cn(
+          'status-fade rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+          line.acceptance === 'accepted'
+            ? 'bg-signal text-primary-foreground'
+            : 'border-rule hover:bg-sunken border',
+        )}
+      >
+        Accept
+      </button>
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => void setAcceptance('rejected')}
+        className={cn(
+          'status-fade rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+          line.acceptance === 'rejected'
+            ? 'bg-alert text-white'
+            : 'border-rule hover:bg-sunken border',
+        )}
+      >
+        Reject
+      </button>
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => setOpen((o) => !o)}
+        className="border-rule hover:bg-sunken rounded-md border px-2 py-1 text-[11px]"
+      >
+        {open ? 'Less' : 'More'}
+      </button>
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => void onChange({ deleted: true })}
+        className="text-alert hover:bg-alert-wash rounded-md px-2 py-1 text-[11px]"
+      >
+        Delete
+      </button>
+    </div>
+  );
+
+  const markers = (
+    <div className="flex flex-wrap gap-1">
+      {line.confidence ? (
+        <Marker tone={confidenceTone(line.confidence)}>{line.confidence}</Marker>
+      ) : (
+        <Marker>—</Marker>
+      )}
+      {line.pricing_status !== 'priced' ? (
+        <Marker tone="alert">
+          {line.pricing_status === 'manual_entry_required' ? 'Manual $' : 'RFQ'}
+        </Marker>
+      ) : null}
+      {line.price_freshness === 'stale' || line.price_freshness === 'review' ? (
+        <Marker tone="alert">{line.price_freshness}</Marker>
+      ) : null}
+      {line.acceptance === 'pending' ? <Marker tone="muted">Pending</Marker> : null}
+    </div>
+  );
+
   return (
     <div
       className={cn(
-        'border-rule border-b last:border-0',
+        'border-rule status-fade border-b last:border-0',
         line.acceptance === 'rejected' && 'bg-alert-wash/40 opacity-75',
         line.acceptance === 'accepted' && 'bg-signal-wash/30',
       )}
     >
-      <div className="grid grid-cols-12 items-start gap-2 px-3 py-2.5 text-[13px]">
-        <div className="col-span-12 sm:col-span-2">
+      {/* Desktop: multi-column row */}
+      <div className="hidden items-start gap-3 px-3 py-3 lg:grid lg:grid-cols-[7rem_1fr_4.5rem_3.5rem_5.5rem_auto_auto]">
+        <div>
           <input
             disabled={disabled}
             value={local.tag}
             onChange={(e) => setLocal((s) => ({ ...s, tag: e.target.value }))}
             onBlur={() => void save()}
-            className="border-rule bg-panel w-full rounded-md border px-2 py-1 font-mono text-[12px]"
+            className={cn(field, 'font-mono')}
             aria-label="Tag"
           />
           <p className="text-ink-muted mt-1 truncate text-[11px]">{local.room || '—'}</p>
         </div>
-        <div className="col-span-12 sm:col-span-4">
+        <textarea
+          disabled={disabled}
+          value={local.description}
+          onChange={(e) => setLocal((s) => ({ ...s, description: e.target.value }))}
+          onBlur={() => void save()}
+          rows={2}
+          className={cn(field, 'resize-y')}
+          aria-label="Description"
+        />
+        <input
+          disabled={disabled}
+          type="text"
+          inputMode="decimal"
+          value={local.qty}
+          onChange={(e) => setLocal((s) => ({ ...s, qty: e.target.value }))}
+          onBlur={() => void save()}
+          className={cn(field, 'text-right font-mono')}
+          aria-label="Qty"
+        />
+        <input
+          disabled={disabled}
+          value={local.unit}
+          onChange={(e) => setLocal((s) => ({ ...s, unit: e.target.value }))}
+          onBlur={() => void save()}
+          className={cn(field, 'font-mono')}
+          aria-label="Unit"
+        />
+        <input
+          disabled={disabled}
+          type="text"
+          inputMode="decimal"
+          value={local.unit_sale}
+          onChange={(e) => setLocal((s) => ({ ...s, unit_sale: e.target.value }))}
+          onBlur={() => void save()}
+          className={cn(field, 'text-right font-mono')}
+          aria-label="Unit sale"
+        />
+        {markers}
+        <div className="justify-self-end">{actions}</div>
+      </div>
+
+      {/* Mobile / tablet: stacked fields with sticky action bar */}
+      <div className="space-y-3 px-3 py-3 lg:hidden">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          {markers}
+          <p className="text-ink-muted font-mono text-[11px]">
+            Ext {money(numberOr(local.qty, line.qty) * numberOr(local.unit_sale, line.unit_sale))}
+          </p>
+        </div>
+        <label className="block">
+          <span className="t-label mb-1 block">Tag</span>
+          <input
+            disabled={disabled}
+            value={local.tag}
+            onChange={(e) => setLocal((s) => ({ ...s, tag: e.target.value }))}
+            onBlur={() => void save()}
+            className={cn(field, 'font-mono')}
+          />
+        </label>
+        <label className="block">
+          <span className="t-label mb-1 block">Description</span>
           <textarea
             disabled={disabled}
             value={local.description}
             onChange={(e) => setLocal((s) => ({ ...s, description: e.target.value }))}
             onBlur={() => void save()}
             rows={2}
-            className="border-rule bg-panel w-full resize-y rounded-md border px-2 py-1 text-[12px]"
-            aria-label="Description"
+            className={cn(field, 'resize-y')}
           />
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block">
+            <span className="t-label mb-1 block">Qty</span>
+            <input
+              disabled={disabled}
+              type="text"
+              inputMode="decimal"
+              value={local.qty}
+              onChange={(e) => setLocal((s) => ({ ...s, qty: e.target.value }))}
+              onBlur={() => void save()}
+              className={cn(field, 'text-right font-mono')}
+            />
+          </label>
+          <label className="block">
+            <span className="t-label mb-1 block">Unit</span>
+            <input
+              disabled={disabled}
+              value={local.unit}
+              onChange={(e) => setLocal((s) => ({ ...s, unit: e.target.value }))}
+              onBlur={() => void save()}
+              className={cn(field, 'font-mono')}
+            />
+          </label>
+          <label className="block">
+            <span className="t-label mb-1 block">Sale</span>
+            <input
+              disabled={disabled}
+              type="text"
+              inputMode="decimal"
+              value={local.unit_sale}
+              onChange={(e) => setLocal((s) => ({ ...s, unit_sale: e.target.value }))}
+              onBlur={() => void save()}
+              className={cn(field, 'text-right font-mono')}
+            />
+          </label>
         </div>
-        <div className="col-span-4 sm:col-span-1">
-          <input
-            disabled={disabled}
-            type="text"
-            inputMode="decimal"
-            value={local.qty}
-            onChange={(e) => setLocal((s) => ({ ...s, qty: e.target.value }))}
-            onBlur={() => void save()}
-            className="border-rule bg-panel w-full rounded-md border px-2 py-1 text-right font-mono text-[12px]"
-            aria-label="Qty"
-          />
-        </div>
-        <div className="col-span-4 sm:col-span-1">
-          <input
-            disabled={disabled}
-            value={local.unit}
-            onChange={(e) => setLocal((s) => ({ ...s, unit: e.target.value }))}
-            onBlur={() => void save()}
-            className="border-rule bg-panel w-full rounded-md border px-2 py-1 font-mono text-[12px]"
-            aria-label="Unit"
-          />
-        </div>
-        <div className="col-span-4 sm:col-span-1">
-          <input
-            disabled={disabled}
-            type="text"
-            inputMode="decimal"
-            value={local.unit_sale}
-            onChange={(e) => setLocal((s) => ({ ...s, unit_sale: e.target.value }))}
-            onBlur={() => void save()}
-            className="border-rule bg-panel w-full rounded-md border px-2 py-1 text-right font-mono text-[12px]"
-            aria-label="Unit sale"
-          />
-        </div>
-        <div className="col-span-6 flex flex-wrap gap-1 sm:col-span-1">
-          {line.confidence ? (
-            <Marker tone={confidenceTone(line.confidence)}>{line.confidence}</Marker>
-          ) : (
-            <Marker>—</Marker>
-          )}
-          {line.pricing_status !== 'priced' ? (
-            <Marker tone="alert">
-              {line.pricing_status === 'manual_entry_required' ? 'Manual $' : 'RFQ'}
-            </Marker>
-          ) : null}
-          {line.price_freshness === 'stale' || line.price_freshness === 'review' ? (
-            <Marker tone="alert">{line.price_freshness}</Marker>
-          ) : null}
-        </div>
-        <div className="col-span-6 flex flex-wrap items-center justify-end gap-1 sm:col-span-2">
-          <button
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => void setAcceptance('accepted')}
-            className={cn(
-              'rounded-md px-2 py-1 text-[11px] font-medium',
-              line.acceptance === 'accepted'
-                ? 'bg-signal text-primary-foreground'
-                : 'border-rule hover:bg-sunken border',
-            )}
-          >
-            Accept
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => void setAcceptance('rejected')}
-            className={cn(
-              'rounded-md px-2 py-1 text-[11px] font-medium',
-              line.acceptance === 'rejected'
-                ? 'bg-alert text-white'
-                : 'border-rule hover:bg-sunken border',
-            )}
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => setOpen((o) => !o)}
-            className="border-rule hover:bg-sunken rounded-md border px-2 py-1 text-[11px]"
-          >
-            {open ? 'Less' : 'More'}
-          </button>
-          <button
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => void onChange({ deleted: true })}
-            className="text-alert hover:bg-alert-wash rounded-md px-2 py-1 text-[11px]"
-          >
-            Delete
-          </button>
+        <div className="border-rule bg-panel sticky bottom-0 -mx-3 border-t px-3 py-2">
+          {actions}
         </div>
       </div>
 
@@ -245,7 +359,7 @@ function LineEditor({
               value={local.room}
               onChange={(e) => setLocal((s) => ({ ...s, room: e.target.value }))}
               onBlur={() => void save()}
-              className="border-rule bg-panel w-full rounded-md border px-2 py-1.5 text-[12px]"
+              className={field}
             />
           </label>
           <label className="block text-[11px]">
@@ -255,7 +369,7 @@ function LineEditor({
               value={local.cost_basis}
               onChange={(e) => setLocal((s) => ({ ...s, cost_basis: e.target.value }))}
               onBlur={() => void save()}
-              className="border-rule bg-panel w-full rounded-md border px-2 py-1.5 font-mono text-[12px]"
+              className={cn(field, 'font-mono')}
             />
           </label>
           <label className="block text-[11px] sm:col-span-2">
@@ -266,7 +380,7 @@ function LineEditor({
               onChange={(e) => setLocal((s) => ({ ...s, substitution_notes: e.target.value }))}
               onBlur={() => void save()}
               rows={2}
-              className="border-rule bg-panel w-full rounded-md border px-2 py-1.5 text-[12px]"
+              className={field}
             />
           </label>
           <label className="block text-[11px]">
@@ -279,7 +393,7 @@ function LineEditor({
                 setLocal((s) => ({ ...s, pricing_status }));
                 void onChange({ pricing_status });
               }}
-              className="border-rule bg-panel w-full rounded-md border px-2 py-1.5 text-[12px]"
+              className={field}
             >
               <option value="priced">Priced</option>
               <option value="manual_entry_required">Manual price entry</option>
@@ -291,6 +405,13 @@ function LineEditor({
             {line.unit_cost != null ? ` · Cost ${money(line.unit_cost)}` : ''}
             {line.margin_rate != null ? ` · Margin ${(line.margin_rate * 100).toFixed(1)}%` : ''}
           </p>
+          <div className="sm:col-span-2">
+            <span className="t-label mb-1 block">Provenance</span>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px]">
+              <Provenance label="Quantity" value={line.quantity_source} />
+              <Provenance label="Size" value={line.size_source} optional />
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -301,10 +422,12 @@ export function ReviewWorkspace({
   projectId,
   runId,
   projectName,
+  vendorFolders = [],
 }: {
   projectId: string;
   runId: string;
   projectName: string;
+  vendorFolders?: string[];
 }) {
   const [draft, setDraft] = useState<QuoteDraftRow | null>(null);
   const [lines, setLines] = useState<QuoteLineRow[]>([]);
@@ -315,9 +438,6 @@ export function ReviewWorkspace({
   const [approving, setApproving] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
 
-  // No synchronous state update: `loading` starts true and everything else happens once
-  // the response lands, so the effect below only starts work rather than cascading a
-  // render out of it.
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch(`/api/runs/${runId}/quote`, { signal });
@@ -339,10 +459,6 @@ export function ReviewWorkspace({
 
   useEffect(() => {
     const controller = new AbortController();
-    // `load` sets state only after awaiting the response - the "call setState from a
-    // callback when the external system reports back" case the rule allows. The
-    // analyzer cannot see past the await into the async function; the abort on cleanup
-    // is what makes it safe.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(controller.signal);
     return () => controller.abort();
@@ -450,10 +566,14 @@ export function ReviewWorkspace({
 
   const approved = draft?.status === 'approved';
   const status = (draft?.status ?? 'draft') as DraftStatus;
+  const canApprove = !approved && stats.pending === 0;
+  const progress =
+    stats.total === 0 ? 0 : Math.round(((stats.accepted + stats.rejected) / stats.total) * 100);
 
   if (loading) {
     return (
       <Page>
+        <ChromeSetter title={projectName} status="Loading review…" />
         <PageHeader eyebrow="Quote review" title="Loading…" />
         <p className="text-ink-muted text-[13px]">Loading draft lines…</p>
       </Page>
@@ -463,6 +583,7 @@ export function ReviewWorkspace({
   if (error || !draft) {
     return (
       <Page>
+        <ChromeSetter title={projectName} status="Review unavailable" />
         <PageHeader
           eyebrow={
             <Link href={`/projects/${projectId}`} className="hover:text-ink transition-colors">
@@ -478,6 +599,10 @@ export function ReviewWorkspace({
 
   return (
     <Page>
+      <ChromeSetter
+        title={projectName}
+        status={approved ? 'Approved' : `${stats.pending} pending · ${progress}% reviewed`}
+      />
       <PageHeader
         eyebrow={
           <Link href={`/projects/${projectId}`} className="hover:text-ink transition-colors">
@@ -502,8 +627,13 @@ export function ReviewWorkspace({
             </a>
             <button
               type="button"
-              disabled={approved || approving || stats.pending > 0}
+              disabled={!canApprove || approving}
               onClick={() => void approve()}
+              title={
+                stats.pending > 0
+                  ? `Accept or reject ${stats.pending} pending line${stats.pending === 1 ? '' : 's'} first`
+                  : undefined
+              }
               className="bg-signal text-primary-foreground hover:bg-signal/90 rounded-md px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
             >
               {approving ? 'Approving…' : approved ? 'Approved' : 'Approve & export'}
@@ -517,10 +647,40 @@ export function ReviewWorkspace({
         CBC workbook for download.
       </p>
 
+      {!approved && stats.pending > 0 ? (
+        <div className="border-rule bg-signal-wash/50 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-3">
+          <div>
+            <p className="text-[13px] font-medium text-signal">
+              {stats.pending} line{stats.pending === 1 ? '' : 's'} still pending
+            </p>
+            <p className="text-ink-muted mt-0.5 text-[12px]">
+              Review them (or filter to Pending), then Approve unlocks.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilter('pending')}
+            className="border-signal/40 text-signal hover:bg-panel rounded-md border px-3 py-1.5 text-[12px] font-medium"
+          >
+            Show pending
+          </button>
+        </div>
+      ) : null}
+
+      {!approved && stats.pending === 0 && stats.total > 0 ? (
+        <div className="border-rule bg-panel mb-4 rounded-md border px-4 py-3 text-[13px]">
+          All lines decided. Ready to <span className="font-medium">Approve & export</span>.
+        </div>
+      ) : null}
+
       <FigureRow>
         <Figure label="Lines" value={count(stats.total)} />
         <Figure label="Accepted" value={count(stats.accepted)} tone="signal" />
-        <Figure label="Need review" value={count(stats.pending + stats.low + stats.manual)} tone="alert" />
+        <Figure
+          label="Need review"
+          value={count(stats.pending + stats.low + stats.manual)}
+          tone="alert"
+        />
         <Figure label="Ext. sale (active)" value={money(stats.ext)} />
       </FigureRow>
 
@@ -582,14 +742,25 @@ export function ReviewWorkspace({
               <Empty title="No lines in this view." />
             </div>
           ) : (
-            visible.map((line) => (
-              <LineEditor
-                key={line.id}
-                line={line}
-                disabled={approved}
-                onChange={(patch) => patchLine(line.id, patch)}
-              />
-            ))
+            <>
+              <div className="border-rule text-ink-muted hidden border-b bg-sunken/50 px-3 py-2 text-[11px] font-medium tracking-[0.02em] lg:grid lg:grid-cols-[7rem_1fr_4.5rem_3.5rem_5.5rem_auto_auto] lg:gap-3">
+                <span>Tag</span>
+                <span>Description</span>
+                <span className="text-right">Qty</span>
+                <span>Unit</span>
+                <span className="text-right">Sale</span>
+                <span>Flags</span>
+                <span className="text-right">Actions</span>
+              </div>
+              {visible.map((line) => (
+                <LineEditor
+                  key={line.id}
+                  line={line}
+                  disabled={approved}
+                  onChange={(patch) => patchLine(line.id, patch)}
+                />
+              ))}
+            </>
           )}
         </div>
       </Section>
@@ -605,6 +776,12 @@ export function ReviewWorkspace({
           </ul>
         </Section>
       ) : null}
+
+      <ScopedChat
+        scope="project"
+        vendorFolders={vendorFolders}
+        context={{ projectId, projectName }}
+      />
     </Page>
   );
 }

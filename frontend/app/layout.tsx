@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/shell/theme-provider";
-import { AppSidebar } from "@/components/shell/app-sidebar";
+import { ChromeProvider } from "@/components/shell/chrome-context";
+import { AppSidebar, MobileNavDrawer } from "@/components/shell/app-sidebar";
 import { TopBar } from "@/components/shell/top-bar";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Toaster } from "@/components/ui/sonner";
@@ -36,16 +37,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex min-h-full">
         <ThemeProvider>
-          <AppSidebar />
-          <div className="flex min-h-full min-w-0 flex-1 flex-col">
-            <TopBar />
-            <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-          </div>
-          <CommandPalette />
-          <Toaster
-            position="bottom-right"
-            toastOptions={{ className: "rounded-lg font-sans" }}
-          />
+          <ChromeProvider>
+            <AppSidebar />
+            <MobileNavDrawer />
+            <div className="flex min-h-full min-w-0 flex-1 flex-col">
+              <TopBar />
+              <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+            </div>
+            <CommandPalette />
+            <Toaster
+              position="bottom-right"
+              toastOptions={{ className: "rounded-md font-sans" }}
+            />
+          </ChromeProvider>
         </ThemeProvider>
       </body>
     </html>

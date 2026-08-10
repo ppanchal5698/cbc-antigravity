@@ -1,9 +1,6 @@
-import { createWriteStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import { query, withTransaction } from '@/lib/db';
-import { hasAllowedExtension, resolveInside, safeFilename } from '@/lib/projects';
+import { query } from '@/lib/db';
+import { attachFile } from '@/lib/intake';
+import { hasAllowedExtension } from '@/lib/projects';
 import type { Project, ProjectFile } from '@/types/events';
 
 export const dynamic = 'force-dynamic';
@@ -24,9 +21,24 @@ export async function GET(
       'SELECT * FROM files WHERE project_id = $1 ORDER BY uploaded_at DESC',
       [id],
     );
+    // A failed run that has already been retried is history, not state: showing it beside
+    // the attempt that replaced it reads as two problems. The row stays in the table -
+    // the error is the record of what the audit gate objected to - it just stops being
+    // listed once a later attempt exists for the same file.
     const runs = await query(
-      `SELECT id, file_id, status, output_path, error, created_at
-         FROM workflow_runs WHERE project_id = $1 ORDER BY created_at DESC`,
+      `SELECT r.id, r.file_id, r.status, r.output_path, r.error, r.created_at
+         FROM workflow_runs r
+        WHERE r.project_id = $1
+          AND NOT (
+            r.status = 'failed'
+            AND EXISTS (
+              SELECT 1 FROM workflow_runs newer
+               WHERE newer.project_id = r.project_id
+                 AND newer.file_id IS NOT DISTINCT FROM r.file_id
+                 AND newer.created_at > r.created_at
+            )
+          )
+        ORDER BY r.created_at DESC`,
       [id],
     );
     return Response.json({ files, runs });
@@ -56,7 +68,6 @@ export async function POST(
     );
   }
 
-  let target: string | null = null;
   try {
     const projects = await query<Project>('SELECT * FROM projects WHERE id = $1', [id]);
     const project = projects[0];
@@ -80,33 +91,15 @@ export async function POST(
       return Response.json({ error: `Unsupported file type: ${upload.name}` }, { status: 415 });
     }
 
-    const filename = safeFilename(upload.name);
-    target = resolveInside(project.folder_path, filename);
-    // Streamed rather than `Buffer.from(await upload.arrayBuffer())`, which held a
-    // second full copy of a file that can be 200 MB.
-    await pipeline(
-      Readable.fromWeb(upload.stream() as Parameters<typeof Readable.fromWeb>[0]),
-      createWriteStream(target),
-    );
-
-    const { file, run } = await withTransaction(async (client) => {
-      const fileRows = await client.query<ProjectFile>(
-        `INSERT INTO files (project_id, filename, path, size_bytes, mime)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [project.id, filename, target, upload.size, upload.type || null],
-      );
-      const runRows = await client.query<{ id: string }>(
-        `INSERT INTO workflow_runs (project_id, file_id) VALUES ($1, $2) RETURNING id`,
-        [project.id, fileRows.rows[0].id],
-      );
-      return { file: fileRows.rows[0], run: runRows.rows[0] };
+    // Writing the file, the two inserts and the cleanup-on-failure all live in
+    // `attachFile`, so the mail poller lands a bid set exactly the way an upload does.
+    const { file, run } = await attachFile(project, upload.name, upload.stream(), {
+      size: upload.size,
+      mime: upload.type || null,
     });
 
     return Response.json({ file, runId: run.id }, { status: 201 });
   } catch (err) {
-    // A half-written file with no row behind it would be picked up by the folder-wide
-    // estimate prompt as if it were a real bid document.
-    if (target) await rm(target, { force: true }).catch(() => {});
     return Response.json({ error: message(err) }, { status: 500 });
   }
 }

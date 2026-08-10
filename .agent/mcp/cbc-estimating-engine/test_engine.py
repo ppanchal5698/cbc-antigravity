@@ -1,5 +1,6 @@
 """Unit tests for CBC estimating engine."""
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -173,7 +174,8 @@ class TestCBCEstimatingEngine(unittest.TestCase):
 
     def test_format_cbc_proposal(self):
         audit = {"cost_source": "catalog_list_x_multiplier",
-                 "cost_source_detail": "Hager PB#18 p42, 0.29 mult"}
+                 "cost_source_detail": "Hager PB#18 p42, 0.29 mult",
+                 "quantity_source": "schedule:A2.2 row 101"}
         doors = [{"ext_cost": 1000.0, "ext_sale": 1369.86, **audit}]
         accessories = [{"ext_cost": 500.0, "ext_sale": 1136.36, **audit}]
         proposal = engine.format_cbc_proposal(
@@ -344,6 +346,7 @@ class TestGuardrails(unittest.TestCase):
             "tag": "101", "ext_sale": 100.0, "ext_cost": 73.0,
             "cost_source": "catalog_list_x_multiplier",
             "cost_source_detail": "Hager PB#18 p42, 0.29 mult",
+            "quantity_source": "schedule:A2.2 row 101",
         }]
         ok = engine.format_cbc_proposal("Test", sourced, [], state="OH")
         self.assertTrue(ok["audit_passed"])
@@ -661,6 +664,242 @@ class TestOKFKnowledgeGraph(unittest.TestCase):
         self.assertEqual(len(reloaded.nodes), len(self.kg.nodes))
         self.assertEqual(reloaded.validation_errors, [])
         self.assertEqual(reloaded.metadata["total_nodes"], len(reloaded.nodes))
+
+
+class TestDutchBrosUnderScoping(unittest.TestCase):
+    """Regressions from the Dutch Bros Yorktown VA quote (2026-08-10 audit).
+
+    That package totalled $107.12 for four openings against ~$11,842 of real doors, and
+    the audit gate passed it: every line had a cost_source and a citation, so nothing
+    asked whether the line delivered what it described. Each test below is one way that
+    quote lied, and each failed before the gate was extended.
+    """
+
+    # Hardware Group 1 as sheet A2.2 actually defines it. Only the threshold was priced.
+    GROUP_1 = [
+        {"component": "Hinge - Ives 700 83in 630"},
+        {"component": "Door Closer - LCN 4040XP"},
+        {"component": "Lockset - Alarm Lock ETDL27R1G/26DV 99"},
+        {"component": "Panic Hardware - Von Duprin 99EO 42in 626"},
+        {"component": "Kick Plate - Ives 8400 40x30 630"},
+        {"component": "Threshold - Pemko 275A 42in", "ext_sale": 32.19},
+        {"component": "Door Shoe - Zero 39A Sweep 42in"},
+        {"component": "Door Seal - Zero 188S BK 18ft"},
+        {"component": "Floor Stop - Ives FS43 626"},
+    ]
+
+    BASE = {"cost_source": "catalog_list_x_multiplier",
+            "cost_source_detail": "Pemko 2026 p13, 275A, 0.45 mult",
+            "quantity_source": "schedule:A2.2 row 01"}
+
+    def test_hardware_group_with_only_a_threshold_priced_is_blocked(self):
+        line = {"tag": "01", "quantity": 1, "ext_sale": 32.19,
+                "description": "Hardware Group 1", "hardware_group": "GROUP 1",
+                "components": self.GROUP_1, **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [], state="VA")
+        self.assertFalse(res["audit_passed"])
+        problems = " ".join(f["problem"] for f in res["audit_failures"])
+        self.assertIn("9 components", problems)
+        self.assertIn("8 neither priced nor excluded", problems)
+
+    def test_group_components_excluded_explicitly_are_accounted(self):
+        """Not-carried is a real answer. Tagged components must not trip the gate."""
+        comps = []
+        for c in self.GROUP_1:
+            c = dict(c)
+            if "ext_sale" not in c:
+                c["exclusion"] = "[not carried on shelf - outside RFQ required]"
+            comps.append(c)
+        line = {"tag": "01", "quantity": 1, "ext_sale": 32.19,
+                "description": "Hardware Group 1", "hardware_group": "GROUP 1",
+                "components": comps, **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [], state="VA")
+        self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+    def test_group_named_without_components_is_blocked(self):
+        line = {"tag": "02", "quantity": 1, "ext_sale": 27.59,
+                "description": "3ft x 7ft HM/HMD Door, Hardware Group 2", **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [], state="VA")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("no enumerated components" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_described_door_assembly_never_priced_is_blocked(self):
+        """The single largest miss: every door line described an HM/HMD door and paid
+        only for its threshold. The leaf and frame were never priced or RFQ'd."""
+        line = {"tag": "01", "quantity": 1, "ext_sale": 32.19,
+                "description": "3ft-6in x 7ft-0in hollow metal door and frame",
+                "components": [{"component": "Threshold", "ext_sale": 32.19}],
+                **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [], state="VA")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("no priced or excluded door/frame assembly" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_quantity_without_provenance_is_blocked(self):
+        """PA-51 grab bars were quoted qty 1 in three invented sizes. The schedule row
+        states neither - it says 'SIZE DEPENDANT ON INSTALLATION LOCATION'."""
+        line = {"tag": "PA-51", "quantity": 1, "ext_sale": 48.75,
+                "description": "Straight Grab Bar - Bobrick B-5806",
+                "cost_source": "catalog_list_x_multiplier",
+                "cost_source_detail": "Bobrick 2020 p15, net cost each"}
+        res = engine.format_cbc_proposal("Dutch Bros", [], [line], state="VA")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("no provenance" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_size_in_description_needs_a_source(self):
+        line = {"tag": "PA-51", "quantity": 1, "ext_sale": 48.75,
+                "description": 'Straight Grab Bar 18" - Bobrick B-5806x18',
+                "quantity_source": "tag_count:A5.1",
+                "cost_source": "catalog_list_x_multiplier",
+                "cost_source_detail": "Bobrick 2020 p15"}
+        res = engine.format_cbc_proposal("Dutch Bros", [], [line], state="VA")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("no size_source" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_undisclosed_substitution_is_blocked(self):
+        """The finish schedule specifies Marlite S-100G. The quote priced NUDO LP-F9 and
+        presented it as a direct catalog hit."""
+        line = {"tag": "WF-1", "quantity": 41, "ext_sale": 3439.08,
+                "description": "Class C FRP 4x10 wall panel",
+                "specified_manufacturer": "MARLITE", "manufacturer": "NUDO",
+                "quantity_source": "vision:A2.1", "size_source": "schedule:A2.1",
+                "cost_source": "catalog_list_x_multiplier",
+                "cost_source_detail": "NUDO 5-11-26 p1"}
+        res = engine.format_cbc_proposal("Dutch Bros", [], [], [line], state="VA")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("substitution_note" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_missing_state_is_blocked_not_defaulted(self):
+        """`state` used to default to OH, which taxed this Virginia job at Ohio's 8%."""
+        line = {"tag": "01", "quantity": 1, "ext_sale": 100.0,
+                "description": "Threshold", **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [])
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any(f["block"] == "tax" for f in res["audit_failures"]))
+
+    def test_virginia_is_not_taxed(self):
+        line = {"tag": "01", "quantity": 1, "ext_sale": 100.0,
+                "description": "Threshold", **self.BASE}
+        res = engine.format_cbc_proposal("Dutch Bros", [line], [], state="VA")
+        self.assertEqual(res["sales_tax_rate"], 0.0)
+        self.assertEqual(res["sales_tax_amount"], 0.0)
+        self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+
+class TestUnpricedLinesCanBeStated(unittest.TestCase):
+    """An item with no cost must be expressible, or the audit deadlocks.
+
+    Every value in COST_SOURCES answers "how was this cost obtained", which is unanswerable
+    for a 10 44 00 extinguisher cabinet - nobody on the shelf sells one. The DTGO Popeyes
+    run stalled exactly there: the estimate was correct, the honest answer was to leave
+    cost_source blank, and blank was what the audit rejected. Three retries, same three
+    lines, no way through.
+    """
+
+    BASE = {"quantity": 1, "quantity_source": "schedule:A6.1 row 1",
+            "cost_source_detail": "searched 10 44 00 across the shelf; no vendor carries it"}
+
+    def test_not_carried_line_passes_at_zero(self):
+        line = {"tag": "FEC-1", "ext_sale": 0.0,
+                "description": "Semi-recessed fire extinguisher cabinet",
+                "cost_source": "not_carried", **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [], [line], state="OH")
+        self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+    def test_owner_supplied_and_excluded_are_expressible(self):
+        for src in ("owner_supplied", "excluded"):
+            with self.subTest(cost_source=src):
+                line = {"tag": "PA-61", "ext_sale": 0.0, "description": "Soap dispenser",
+                        "cost_source": src, **self.BASE}
+                res = engine.format_cbc_proposal("DTGO", [], [line], state="OH")
+                self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+    def test_no_cost_source_may_not_carry_money(self):
+        """The escape hatch must not become a way to bank a number with no provenance."""
+        line = {"tag": "FEC-1", "ext_sale": 250.0,
+                "description": "Semi-recessed fire extinguisher cabinet",
+                "cost_source": "not_carried", **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [], [line], state="OH")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("has no cost" in f["problem"] for f in res["audit_failures"]))
+
+    def test_blank_cost_source_still_fails_and_says_how_to_fix_it(self):
+        line = {"tag": "CH-1", "ext_sale": 0.0, "description": "Heavy-duty coat hook",
+                **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [], [line], state="OH")
+        self.assertFalse(res["audit_passed"])
+        fix = " ".join(f["fix"] for f in res["audit_failures"])
+        self.assertIn("not_carried", fix, "the failure must name the way out of the deadlock")
+
+    def test_uncosted_door_does_not_also_owe_an_assembly_line(self):
+        """The checks that predate NO_COST_SOURCES must honour it.
+
+        A door nobody on the shelf sells, declared not_carried at 0, was still failing
+        "description names 'hm door' but the line carries no priced or excluded door/frame
+        assembly" - a second deadlock behind the first.
+        """
+        line = {"tag": "103", "ext_sale": 0.0,
+                "description": "3070 HM door and frame, Hardware Group 1",
+                "cost_source": "not_carried", **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [line], [], state="OH")
+        self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+    def test_a_priced_door_still_owes_its_hardware_group(self):
+        """The exemption is for lines carrying no money. The Dutch Bros miss - a Group 1
+        opening priced at its threshold alone - must still fail."""
+        line = {"tag": "01", "ext_sale": 32.19,
+                "description": "3-6 x 7-0 HM/HMD Door, Hardware Group 1",
+                "hardware_group": "GROUP 1",
+                "components": [{"component": "Threshold", "ext_sale": 32.19},
+                               {"component": "LCN 4040XP closer"},
+                               {"component": "Von Duprin 99EO panic"}],
+                "cost_source": "catalog_list_x_multiplier", **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [line], [], state="OH")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("neither priced nor excluded" in f["problem"]
+                            for f in res["audit_failures"]))
+
+    def test_unknown_cost_source_is_still_rejected(self):
+        line = {"tag": "X", "ext_sale": 0.0, "description": "thing",
+                "cost_source": "made_up", **self.BASE}
+        res = engine.format_cbc_proposal("DTGO", [], [line], state="OH")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any("unknown cost_source" in f["problem"] for f in res["audit_failures"]))
+
+
+class TestMemoryFilesParse(unittest.TestCase):
+    """The memory files are the workspace's long-term state, and they are hand-edited.
+
+    `memory/active_project.json` carried two stray closing braces for long enough that
+    the memory page silently empty-stated instead of erroring - a malformed record looks
+    exactly like an empty one to every reader.
+    """
+
+    ROOT = Path(__file__).resolve().parents[3] / "memory"
+
+    def test_json_files_parse(self):
+        if not self.ROOT.is_dir():
+            self.skipTest("memory/ not present")
+        for path in sorted(self.ROOT.rglob("*.json")):
+            with self.subTest(file=path.name):
+                json.loads(path.read_text(encoding="utf-8"))
+
+    def test_jsonl_records_parse(self):
+        """One object per line, `//` comment lines allowed - the readers skip those
+        deliberately (catint/overrides.py), so the check has to match that contract."""
+        if not self.ROOT.is_dir():
+            self.skipTest("memory/ not present")
+        for path in sorted(self.ROOT.rglob("*.jsonl")):
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                line = line.strip()
+                if not line or line.startswith("//"):
+                    continue
+                with self.subTest(file=path.name, line=n):
+                    json.loads(line)
 
 
 if __name__ == "__main__":

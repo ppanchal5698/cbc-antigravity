@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
+import { catalogIndexReady, listVendors } from '@/lib/catalog';
 import { ReviewWorkspace } from '@/components/review/review-workspace';
 import type { Project } from '@/types/events';
 
@@ -27,7 +28,16 @@ export default async function ReviewPage({
   );
   if (!runs[0]) notFound();
 
+  const vendorFolders = catalogIndexReady()
+    ? listVendors().map((vendor) => vendor.folder)
+    : [];
+
   return (
-    <ReviewWorkspace projectId={project.id} runId={runId} projectName={project.name} />
+    <ReviewWorkspace
+      projectId={project.id}
+      runId={runId}
+      projectName={project.name}
+      vendorFolders={vendorFolders}
+    />
   );
 }

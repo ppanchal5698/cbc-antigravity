@@ -45,6 +45,26 @@ function pricingStatus(value: unknown): QuotationLine['pricingStatus'] {
   return null;
 }
 
+/** Text on a line that says a real number is still outstanding. */
+const AWAITING_RX = /not carried|outside rfq|vendor_rfq|not indexed|rfq required|manual_wholesaler_net/i;
+
+/**
+ * A line carrying no money, whose own basis says an RFQ is outstanding, is not "priced".
+ *
+ * The model reported `priced` on $0.00 door assemblies tagged
+ * "[not carried on shelf - outside RFQ required]", which puts them on the review screen
+ * under a settled status. `priced` has to mean a price was established; when the line says
+ * otherwise in its own words, the line wins. A genuinely $0 owner-supplied item says no
+ * such thing and keeps whatever status it was given.
+ */
+function resolvePricingStatus(source: Record<string, unknown>): QuotationLine['pricingStatus'] {
+  const stated = pricingStatus(source.pricingStatus);
+  const unpaid = num(source.unitSale) <= 0;
+  const outstanding = AWAITING_RX.test(`${str(source.costBasis)} ${str(source.citations)}`);
+  if (unpaid && outstanding) return 'awaiting_vendor_rfq';
+  return stated ?? (unpaid ? 'manual_entry_required' : 'priced');
+}
+
 function priceFreshness(value: unknown): QuotationLine['priceFreshness'] {
   const v = str(value).toLowerCase();
   if (v === 'fresh' || v === 'review' || v === 'stale') return v;
@@ -66,11 +86,13 @@ function toLine(raw: unknown): QuotationLine {
     costBasis: str(source.costBasis, 'not_specified'),
     citations: str(source.citations, '[not stated]'),
     confidence: confidence(source.confidence),
-    pricingStatus: pricingStatus(source.pricingStatus) ?? 'priced',
+    pricingStatus: resolvePricingStatus(source),
     priceFreshness: priceFreshness(source.priceFreshness),
     substitutionNotes: str(source.substitutionNotes) || null,
     unitCost,
     marginRate,
+    quantitySource: str(source.quantitySource) || null,
+    sizeSource: str(source.sizeSource) || null,
   };
 }
 
@@ -132,6 +154,51 @@ export function extractJson(response: string): unknown {
 
   if (!found) throw new Error('Antigravity returned no parseable JSON quotation');
   return last;
+}
+
+/**
+ * The engine's audit verdict, read off the same payload the quotation came from.
+ *
+ * Kept separate from `QuotationData` because it is not something the workbook renders -
+ * it decides whether a workbook may be written at all. `format_cbc_proposal` holds a
+ * package NOT READY when a line does not deliver what it describes; before this existed
+ * the worker exported regardless, which is how a $107 quote for four hollow metal door
+ * assemblies reached a spreadsheet looking finished.
+ *
+ * Absence is not consent: a payload with no verdict is treated as not audited.
+ */
+export type AuditVerdict = { passed: boolean; failures: string[] };
+
+export function readAuditVerdict(raw: unknown): AuditVerdict {
+  if (!raw || typeof raw !== 'object') return { passed: false, failures: ['no payload'] };
+  const source = raw as Record<string, unknown>;
+  const rawFailures = Array.isArray(source.auditFailures)
+    ? source.auditFailures
+    : Array.isArray(source.audit_failures)
+      ? source.audit_failures
+      : [];
+  const failures = rawFailures.map((item) => {
+    if (item && typeof item === 'object') {
+      const f = item as Record<string, unknown>;
+      const where = str(f.line) || str(f.block);
+      const problem = str(f.problem);
+      const fix = str(f.fix);
+      return [where && `[${where}]`, problem, fix && `→ ${fix}`].filter(Boolean).join(' ');
+    }
+    return str(item);
+  }).filter(Boolean);
+
+  const flag = source.auditPassed ?? source.audit_passed;
+  // Only an explicit true passes. An older payload that carries neither flag nor failures
+  // predates the gate and must not be exported on the strength of saying nothing.
+  const passed = flag === true && failures.length === 0;
+  if (!passed && failures.length === 0) {
+    failures.push(
+      'the estimate package carries no audit verdict; format_cbc_proposal must produce ' +
+      'auditPassed and auditFailures before a workbook can be written',
+    );
+  }
+  return { passed, failures };
 }
 
 export function coerceQuotation(raw: unknown, fallbackProjectName: string): QuotationData {

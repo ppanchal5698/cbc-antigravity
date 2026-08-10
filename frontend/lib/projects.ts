@@ -43,7 +43,9 @@ export function safeFilename(filename: string): string {
   return cleaned.slice(0, 180) || 'upload';
 }
 
-export { ALLOWED_EXTENSIONS, hasAllowedExtension } from './uploads';
+// Extension-qualified: the gateway runs these files through raw Node, which does not do
+// bundler-style resolution. Next handles the explicit `.ts` fine (see lib/quote-draft.ts).
+export { ALLOWED_EXTENSIONS, hasAllowedExtension } from './uploads.ts';
 
 /**
  * Resolves `child` under `parent` and refuses anything that escapes it.

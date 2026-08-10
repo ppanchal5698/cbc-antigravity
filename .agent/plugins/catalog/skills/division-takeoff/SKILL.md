@@ -52,12 +52,22 @@ know before the work, not after.
 Work only in `building-plan-intelligence` here. Nothing from a catalog may
 enter this step.
 
-### Where each division lives on the drawings
+### How to find each division on the drawings
 
-| Division | What to look for | Usual home |
+Search by content. A sheet number is a per-firm convention, not an address: the same door
+schedule sits on `A2.2` in one set and page 31 in another, and a set may carry no parseable
+sheet numbers at all. `find_schedule(doc_id, kind)` ranks sheets by the schedule's own
+vocabulary and returns the tables.
+
+| Division | `find_schedule` kinds | What to look for |
 |---|---|---|
-| **08 — Openings** | door schedule, window/storefront schedule, hardware groups/sets, frame types, louvers | `A2.2` and schedule sheets; `G1.x` specifications |
-| **10 — Specialties** | toilet accessory schedule, signage schedule and sign types, fire extinguisher/cabinet keynotes, lockers, partitions, corner guards, markerboards | interior elevations (`A6.x`), enlarged toilet plans, floor-plan keynotes, `G1.x` specs |
+| **08 — Openings** | `door`, `hardware`, `window` | door schedule, window/storefront schedule, hardware groups/sets, frame types, louvers |
+| **10 — Specialties** | `accessory`, `partition`, `equipment` | toilet accessory schedule, signage schedule and sign types, fire extinguisher/cabinet keynotes, lockers, partitions, corner guards, markerboards |
+| **06 64 — FRP** | `finish` | FRP wall panels, wall/room finish schedule, mouldings and trims |
+
+The specification carries what the drawings leave out; reach it by discipline rather than
+number (`list_sheets(doc_id, discipline="General")`), and by
+`search_sheets(doc_id, '"SECTION 08" OR "SECTION 10"')`.
 
 Division 10 is the harder of the two: it is frequently **not** a schedule at
 all, but keynotes on an enlarged restroom plan plus a note in the

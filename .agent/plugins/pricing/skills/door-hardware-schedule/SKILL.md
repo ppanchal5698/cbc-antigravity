@@ -7,10 +7,22 @@ description: Division 08 takeoff - read the door schedule, derive frame throats,
 
 ## 1. Read the schedule as rows
 
-Locate it: `search_sheets(doc_id, '"DOOR SCHEDULE"')`, typically `A2.2` or a schedule sheet.
-Then `read_schedule(doc_id, sheet)` — **never** flat sheet text. Sheet text interleaves
-columns from unrelated tables, which pairs a value with the wrong row and drops rows
-entirely.
+Locate it by content, never by sheet number: `find_schedule(doc_id, "door")`, then
+`find_schedule(doc_id, "hardware")` for the groups. It ranks every sheet by the schedule's
+own column vocabulary and reads the tables on the best candidates.
+
+**Do not guess a sheet number.** Numbering is a per-firm convention — the door schedule is
+on `A2.2` in one set and page 31 of the next, and some sets have no parseable sheet number
+at all. A guessed number that does not resolve is a signal to search, not to guess again.
+
+Then `read_schedule(doc_id, sheet)` on what discovery returned — **never** flat sheet text.
+Sheet text interleaves columns from unrelated tables, which pairs a value with the wrong row
+and drops rows entirely.
+
+If `find_schedule` returns no candidates, read `absence_established` before concluding
+anything. A non-zero `not_searchable` or `unread_drawings` means the schedule may sit on a
+sheet nobody has looked at yet — render and read those first. Absence is only a finding when
+every sheet has been read.
 
 Capture per opening: tag · size code · door material and type (HM, SCWD, laminate) · frame
 material and type (welded, knock-down) · wall type · handing (LH/RH/LHR/RHR) · fire rating ·

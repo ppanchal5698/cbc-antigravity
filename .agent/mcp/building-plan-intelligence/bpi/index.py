@@ -37,7 +37,16 @@ DISCIPLINES = {
     "FA": "Fire Alarm", "Q": "Equipment", "K": "Kitchen",
 }
 
-SHEET_RX = re.compile(r"^[A-Z]{1,3}-?\d{1,3}(\.\d{1,3})?[A-Z]?$")
+# Sheet numbering is a convention, not a standard. Accepts the lettered families
+# (`A2.2`, `A-101`, `SK-1.01`, `AD101A`) and the purely numeric ones (`101`, `1.01`) that
+# the original pattern rejected outright - a rejected number means no discipline, which
+# used to mean the sheet fell out of the vision gate entirely.
+#
+# Numeric-only needs two digits, or a decimal point, so a stray dimension or callout
+# bubble does not become a sheet number. `sheet_number` further requires the token to sit
+# in the title-block strip and picks the largest one, which is the real filter.
+SHEET_RX = re.compile(
+    r"^([A-Z]{1,4}-?\d{1,3}(\.\d{1,3}){0,2}[A-Z]?|\d{2,3}(\.\d{1,3})?|\d\.\d{1,3})$")
 _PREFIX_RX = re.compile(r"^([A-Z]{1,3})")
 
 # Labels worth pulling out of a title block when the firm uses them. Dutch Bros
@@ -53,6 +62,107 @@ TB_LABELS = ("SHEET NAME", "SHEET NUMBER", "SHEET TITLE", "SCALE", "DATE",
 # not a post-hoc label.
 PAGE_BUDGET_S = 20.0
 NO_TEXT_CHARS = 50
+
+# Disciplines CBC never estimates. Stated as a DENY list on purpose: an allow list makes
+# "Unknown" mean "skip", and 60% of the reference Bid Set has no parseable sheet number, so
+# an allow list silently drops 52 of 87 sheets out of the very gate that is supposed to
+# catch unread drawings. Only a positively identified out-of-scope discipline is skipped;
+# anything unidentified fails toward being looked at.
+OUT_OF_SCOPE_DISCIPLINES = (
+    "Structural", "Electrical", "Mechanical", "Plumbing", "Civil", "Survey",
+    "Landscape", "Fire Protection", "Fire Alarm", "Site",
+)
+
+# What a sheet has to mention to be worth a look when it cannot name itself. Deliberately
+# CBC's own vocabulary - Division 08, 10 28 and 06 64 - so an unnumbered sheet of rebar
+# details is skipped while an unnumbered door schedule is not.
+IN_SCOPE_VOCAB_RX = re.compile(
+    r"\b(DOORS?|FRAMES?|HOLLOW METAL|\bHM\b|HARDWARE|CLOSERS?|HINGES?|LOCKSETS?|"
+    r"THRESHOLDS?|PANIC|EXIT DEVICE|KICK ?PLATES?|LITES?|LOUVERS?|GLAZING|"
+    r"GRAB BARS?|DISPENSERS?|MIRRORS?|ACCESSOR|TOILET|RESTROOM|WASHROOM|"
+    r"HAND DRYER|NAPKIN|SEAT COVER|COAT HOOK|PARTITIONS?|LOCKERS?|"
+    r"FIRE EXTINGUISHER|FRP|FIBERGLASS|WALL PANELS?|MOULDING|MOLDING|"
+    r"FINISH SCHEDULE|ROOM SCHEDULE|WALL TYPES?)\b", re.I)
+
+# Sheets whose meaning is geometry, not prose. A floor plan's fixture count, an
+# elevation's tag callouts and a CAD schedule's column-to-row association all live in
+# the drawing; the text layer flattens them into an order that cannot be trusted. These
+# need a vision pass even when the page extracts perfectly.
+#
+# Measured on Dutch Bros 11-21-25: accessory schedule A1.2 carries no quantity and no
+# size ("SIZE DEPENDANT ON INSTALLATION LOCATION"), and the counts exist only as tags on
+# elevation A5.1. Reading text alone, the estimate invented both.
+DRAWING_TITLE_RX = re.compile(
+    r"\b(PLAN|ELEVATION|SECTION|DETAIL|SCHEDULE|PARTITION|LAYOUT|CEILING|ROOF|"
+    r"CANOPY|AWNING|ENCLOSURE|FINISH|EQUIPMENT)S?\b|\b(ENLARGED|REFLECTED)\b", re.I)
+
+# Prose sheets. Specifications and general notes are paragraphs - the text layer is the
+# whole content, and rendering them buys nothing.
+PROSE_TITLE_RX = re.compile(
+    r"\b(SPECIFICATION|ABBREVIATION|LEGEND|SYMBOL|GENERAL NOTE|CODE|INDEX)S?\b|"
+    r"\b(ACCESSIBILITY DETAILS|COVER SHEET)\b", re.I)
+
+# A title block value that is plainly not a title: a bare dimension picked out of a
+# drawing annotation, or the copyright line. Dutch Bros stored A6.0 as `3' - 2"`,
+# A7.1 as `-0' - 6"` and S2.1 as `c 2025 DB Franchising USA, LLC`.
+NOT_A_TITLE_RX = re.compile(
+    r"^\s*(-?\d+'\s*-?\s*\d*\s*\d*/?\d*\"?|[\d.]+|c?\s*©?\s*\d{4}\s+.*LLC\.?)\s*$",
+    re.I)
+
+
+# What to search for when looking for a schedule of a given kind. Location is never the
+# key - the door schedule is on A2.2 in one set and page 31 of the next - so discovery
+# goes through the FTS index by vocabulary. Seeded from the term lists the
+# specialties-takeoff skill already carries; that skill is the model, because Division 10
+# is frequently keynotes on an enlarged restroom plan rather than a schedule at all.
+SCHEDULE_VOCAB = {
+    "door": ["door schedule", "door type", "door and frame", "opening schedule",
+             "door no", "door mark", "frame type"],
+    "hardware": ["hardware group", "hardware set", "hardware schedule", "finish hardware",
+                 "door hardware", "hw group", "hw set"],
+    "accessory": ["toilet accessor", "bath accessor", "washroom accessor", "grab bar",
+                  "dispenser", "mirror", "hand dryer", "napkin", "seat cover",
+                  "coat hook", "baby chang", "accessory schedule"],
+    "finish": ["finish schedule", "room finish", "wall finish", "frp", "wall panel",
+               "fiberglass reinforced", "material legend"],
+    "window": ["window schedule", "glazing schedule", "storefront", "window type"],
+    "room": ["room schedule", "room finish schedule", "occupancy"],
+    "equipment": ["equipment schedule", "equipment plan", "fixture schedule"],
+    "partition": ["partition type", "wall type", "wall assembly", "partition schedule"],
+}
+
+
+def is_not_a_title(text):
+    """True when a title-block candidate is a dimension, a bare number or a copyright."""
+    if not text:
+        return True
+    return bool(NOT_A_TITLE_RX.match(text.strip()))
+
+
+def vision_role(sheet_no, title, body=""):
+    """Why this sheet does or does not need a visual read.
+
+    Returns "drawing" or "prose". Role is about the sheet's CONTENT, and is deliberately
+    independent of whether the text layer extracted - a page can extract perfectly and
+    still be unreadable, because what it means is drawn rather than written.
+
+    `body` is the fallback identity. A sheet whose number does not parse has no discipline
+    and no title, so the only thing left to judge it on is what it says: an unnumbered
+    door schedule reads as a drawing, an unnumbered rebar detail does not.
+    """
+    if discipline_of(sheet_no) in OUT_OF_SCOPE_DISCIPLINES:
+        return "prose"
+    t = title or ""
+    if PROSE_TITLE_RX.search(t):
+        return "prose"
+    if DRAWING_TITLE_RX.search(t):
+        return "drawing"
+    # No usable identity: judge by content rather than assuming harmless.
+    if not sheet_no and not t:
+        return "drawing" if IN_SCOPE_VOCAB_RX.search(body or "") else "prose"
+    # A sheet we cannot name is not assumed harmless. Dutch Bros A6.0/A7.0/A7.1 are
+    # building elevations whose titles came through as dimension strings.
+    return "drawing"
 
 # How often index_doc checkpoints, so a reader on the WAL sees the index fill in.
 COMMIT_EVERY_PAGES = 25
@@ -107,8 +217,13 @@ def title_block(page, words=None):
     distinguishable by being out of the title block's left alignment.
     """
     words = _words(page) if words is None else words
-    W = page.rect.width
+    W, H = page.rect.width, page.rect.height
+    # Right strip first, and the bottom strip when the right one is empty. `sheet_number`
+    # already accepts either edge; this only looked right, so a portrait sheet with a
+    # bottom title block got its number and never its title.
     strip = [w for w in words if w[0] > W * 0.85]
+    if len(strip) < 4:
+        strip = [w for w in words if w[1] > H * 0.85]
     strip.sort(key=lambda w: (round(w[1] / 6), w[0]))
 
     rows, cur, key = [], [], None  # rows of (x0, text)
@@ -148,16 +263,31 @@ def _bookmark_sheets(doc):
     for _lvl, title, pg in doc.get_toc():
         if pg is None or pg < 1:
             continue
-        m = re.match(r"^\s*([A-Z]{1,3}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?)\s*[-–]\s*(.+)$", title)
+        # Three shapes seen in the wild: `A2.2 - DOOR SCHEDULE`, `A2.2 DOOR SCHEDULE`
+        # (no separator) and `DOOR SCHEDULE (A2.2)`. Only the first used to be accepted,
+        # so the other two lost the bookmark fallback entirely.
+        num = r"[A-Z]{1,4}-?\d{1,3}(?:\.\d{1,3}){0,2}[A-Z]?"
+        m = (re.match(rf"^\s*({num})\s*[-–:]\s*(.+)$", title)
+             or re.match(rf"^\s*({num})\s+(\D.*)$", title))
         if m:
             out[pg] = (m.group(1), m.group(2).strip())
+            continue
+        m = re.match(rf"^\s*(.+?)\s*[\(\[]\s*({num})\s*[\)\]]\s*$", title)
+        if m:
+            out[pg] = (m.group(2), m.group(1).strip())
     return out
 
 
 def _cover_index(doc):
-    """{sheet_no -> title} scraped from a drawing index on the first pages."""
+    """{sheet_no -> title} scraped from a drawing index on the first pages.
+
+    Eight rather than three: a drawing index often sits on `G0.2` or later, behind a cover,
+    a code-summary sheet and an accessibility sheet. Rows already have to look like
+    `<sheet_no> <title>` to be kept, so widening the window costs a few word extractions
+    and cannot introduce junk.
+    """
     out = {}
-    for pno in range(min(3, len(doc))):
+    for pno in range(min(8, len(doc))):
         try:
             words = _words(doc[pno])
         except Exception:
@@ -190,6 +320,7 @@ CREATE TABLE IF NOT EXISTS docs (
 CREATE TABLE IF NOT EXISTS sheets (
   doc_id TEXT, page INT, sheet_no TEXT, title TEXT, discipline TEXT,
   confidence TEXT, vision_need TEXT, width_in REAL, height_in REAL, tb_json TEXT,
+  vision_status TEXT DEFAULT 'required',
   PRIMARY KEY (doc_id, page)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS sheet_text USING fts5(
@@ -215,6 +346,13 @@ def connect():
     except sqlite3.OperationalError:
         pass          # read-only media or a filesystem without shared-memory support
     con.executescript(SCHEMA)
+    # An index built before vision_status existed keeps its rows. Default the column to
+    # 'required' so a pre-existing sheet reads as unverified rather than silently cleared -
+    # the whole point of the column is that "nobody looked" must not look like "looked, fine".
+    try:
+        con.execute("ALTER TABLE sheets ADD COLUMN vision_status TEXT DEFAULT 'required'")
+    except sqlite3.OperationalError:
+        pass          # already present
     return con
 
 
@@ -223,7 +361,21 @@ def _stamp(path):
     return f"{st.st_mtime_ns}:{st.st_size}"
 
 
+# Bump whenever indexing logic changes what a row would contain. The cache is keyed on the
+# FILE, so without this a plan set indexed under older logic keeps its old verdict forever -
+# an unchanged PDF never re-indexes. Bumped to 2 when vision_need started being decided by
+# what a sheet contains rather than whether its text extracted.
+INDEX_VERSION = 3
+
+
+def _index_stamp(path):
+    """Cache key for the `docs` row: the file, plus the logic that read it."""
+    return f"{_stamp(path)}:v{INDEX_VERSION}"
+
+
 def doc_id_for(path):
+    # Deliberately NOT versioned: doc_ids are quoted in estimates and written into
+    # memory/active_project.json, so they must survive an indexer change.
     p = os.path.abspath(path)
     return hashlib.sha1(f"{p}:{_stamp(p)}".encode()).hexdigest()[:16]
 
@@ -236,7 +388,7 @@ def index_doc(path, con=None, force=False):
     own = con is None
     con = con or connect()
     doc_id = doc_id_for(path)
-    stamp = _stamp(path)
+    stamp = _index_stamp(path)
 
     row = con.execute("SELECT stamp FROM docs WHERE doc_id=?", (doc_id,)).fetchone()
     if row and row[0] == stamp and not force:
@@ -269,6 +421,11 @@ def index_doc(path, con=None, force=False):
 
         conf = "title_block"
         title = (tb or {}).get("fields", {}).get("Sheet Name")
+        # A dimension string is not a sheet name. Drop it rather than storing it, so the
+        # bookmark and cover-index fallbacks below get their turn. `conf` is the sheet
+        # NUMBER's confidence and is deliberately left alone.
+        if is_not_a_title(title):
+            title = None
         bm = bookmarks.get(pno + 1)
         if not sn and bm:
             sn, conf = bm[0], "bookmark"
@@ -279,23 +436,37 @@ def index_doc(path, con=None, force=False):
         if not sn:
             conf = "none"
 
-        # Two independent gaps, measured on the Bid Set: 24 pages have no body
-        # text at all ("full"), and another 30 have live body text but a title
-        # block that was outlined to vectors ("identity" - the sheet is
-        # searchable but cannot name itself).
+        # Three independent gaps. Two are extraction failures, measured on the Bid Set:
+        # 24 pages have no body text at all ("full"), and another 30 have live body text
+        # but a title block outlined to vectors ("identity" - searchable, cannot name
+        # itself). The third is not a failure at all: an in-scope sheet whose content is
+        # geometry needs a visual read however cleanly it extracted, because quantities,
+        # sizes and tag counts are drawn rather than written.
+        # Four verdicts, because they call for different remedies and must not be
+        # conflated. Order matters: a page with no text needs the most help, and a page
+        # that cannot name itself needs identifying before anything else is worth doing.
+        #   full     - no text layer at all; nothing is searchable
+        #   identity - searchable, but the title block was outlined so it is unnamed
+        #   drawing  - extracted and named, but its meaning is geometry (counts, tags,
+        #              dimensions) which the text layer cannot carry
+        #   none     - prose; the text layer is the whole content
+        role = vision_role(sn, title, body)
         if slow or len(body.strip()) < NO_TEXT_CHARS:
             vision_need = "full"
         elif not sn:
             vision_need = "identity"
+        elif role == "drawing":
+            vision_need = "drawing"
         else:
             vision_need = "none"
+        vision_status = "not_required" if vision_need == "none" else "required"
 
         r = page.rect
         con.execute(
-            "INSERT OR REPLACE INTO sheets VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO sheets VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (doc_id, pno + 1, sn, title, discipline_of(sn), conf, vision_need,
              round(r.width / 72, 2), round(r.height / 72, 2),
-             json.dumps(tb or {})))
+             json.dumps(tb or {}), vision_status))
         if body.strip():
             con.execute(
                 "INSERT INTO sheet_text (doc_id,page,source,body) VALUES (?,?,?,?)",
@@ -414,8 +585,18 @@ def normalized_sheets(con, doc_id):
     return cached
 
 
+def _squash(s):
+    """`A-2.02` and `A202` and `a 2.02` all collapse to the same key."""
+    return re.sub(r"[^A-Z0-9]", "", str(s or "").upper())
+
+
 def resolve_page(con, doc_id, sheet):
-    """Accept a sheet number ('A2.0') or a page number ('13')."""
+    """Accept a sheet number ('A2.0') or a page number ('13').
+
+    Degrades rather than failing. Numbering differs between firms - `A2.2` in one set is
+    `A-202` in the next - so an exact-match-only lookup turned every convention mismatch
+    into a hard error with nothing to try next.
+    """
     s = str(sheet).strip()
     row = con.execute(
         "SELECT page FROM sheets WHERE doc_id=? AND UPPER(sheet_no)=?",
@@ -427,4 +608,30 @@ def resolve_page(con, doc_id, sheet):
                           (doc_id, int(s))).fetchone()
         if row:
             return row[0]
+    # Punctuation-insensitive match: A-202 <-> A202 <-> a.202
+    key = _squash(s)
+    if key:
+        for page, sn in con.execute(
+                "SELECT page, sheet_no FROM sheets WHERE doc_id=? AND sheet_no IS NOT NULL",
+                (doc_id,)):
+            if _squash(sn) == key:
+                return page
     return None
+
+
+def near_misses(con, doc_id, sheet, limit=8):
+    """Sheet numbers that look like the one asked for, for an actionable error.
+
+    A caller that guessed the wrong convention needs to see the set's own numbering, not
+    just "not found" - that is the difference between recovering and retrying the guess.
+    """
+    key = _squash(sheet)
+    rows = con.execute(
+        "SELECT sheet_no, title, page FROM sheets WHERE doc_id=? AND sheet_no IS NOT NULL "
+        "ORDER BY page", (doc_id,)).fetchall()
+    if not rows:
+        return []
+    stem = re.match(r"^[A-Z]+|^\d+", key)
+    stem = stem.group(0) if stem else key[:1]
+    scored = [r for r in rows if _squash(r[0]).startswith(stem)] or rows
+    return [{"sheet": r[0], "title": r[1], "page": r[2]} for r in scored[:limit]]

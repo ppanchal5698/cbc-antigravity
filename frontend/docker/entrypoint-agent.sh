@@ -67,6 +67,44 @@ if [ ! -f "$MARKER" ]; then
   log "workspace initialised"
 fi
 
+# --- keep the tooling in step with the seed ----------------------------------
+# Everything above runs once. `.agent/` is different: it holds the MCP servers, the
+# always-on rules, the skills and the workflows - the code and instructions that decide
+# what an estimate does. Seeding it once meant a fix to the audit gate or the plan indexer
+# sat on the host indefinitely while the container went on running the version it was born
+# with, and the only symptom was the new behaviour quietly not happening.
+#
+# Re-synced every boot, with three things held back because the workspace OWNS them:
+#   .agent/cache/  - the plan and catalog indexes, built here and expensive to rebuild
+#   mcp_config.json - rewritten below with Linux paths; the seeded copy has Windows ones
+# `plans/` and `memory/` are outside .agent/ and are never touched by this.
+if [ -d "$SEED/.agent" ]; then
+  rsync -a --delete \
+    --exclude 'cache/' \
+    --exclude 'mcp_config.json' \
+    --exclude '__pycache__/' \
+    --exclude '*.egg-info/' \
+    "$SEED/.agent"/ "$WORKSPACE/.agent"/
+  log "synced .agent from $SEED"
+
+  # An editable install points at the source directory, so synced code is picked up with
+  # no reinstall. Dependencies are the exception: reinstall only when a pyproject actually
+  # changes, so a normal boot stays fast.
+  # Outside .agent/, because the rsync above runs with --delete and the seed has no such
+  # file: kept inside, the stamp was erased every boot and the "only when changed"
+  # reinstall ran unconditionally.
+  DEPS_STAMP="$WORKSPACE/.mcp-deps-stamp"
+  DEPS_HASH="$(cat "$SEED"/.agent/mcp/*/pyproject.toml 2>/dev/null | md5sum | cut -d' ' -f1)"
+  if [ -x "$WORKSPACE/.venv/bin/pip" ] && [ "$DEPS_HASH" != "$(cat "$DEPS_STAMP" 2>/dev/null || true)" ]; then
+    log "MCP dependencies changed; reinstalling"
+    for server in building-plan-intelligence catalog-intelligence cbc-estimating-engine; do
+      [ -d "$WORKSPACE/.agent/mcp/$server" ] \
+        && "$WORKSPACE/.venv/bin/pip" install --no-cache-dir -q -e "$WORKSPACE/.agent/mcp/$server"
+    done
+    printf '%s' "$DEPS_HASH" > "$DEPS_STAMP"
+  fi
+fi
+
 # --- Linux MCP registration --------------------------------------------------
 # Rewritten every boot: the seeded copy carries Windows paths that cannot spawn
 # here, and the image's config is the authority inside the container.

@@ -47,9 +47,33 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id      uuid REFERENCES projects(id) ON DELETE CASCADE,
   conversation_id text,
+  scope           text NOT NULL DEFAULT 'general',
+  subject_key     text NOT NULL DEFAULT '',
+  title           text,
+  preview         text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- Additive upgrades for DBs that already had the narrower chat_sessions table.
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'general';
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS subject_key text NOT NULL DEFAULT '';
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS preview text;
+
+CREATE INDEX IF NOT EXISTS chat_sessions_surface_idx
+  ON chat_sessions(scope, subject_key, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id  uuid NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  role        text NOT NULL CHECK (role IN ('user', 'assistant')),
+  content     text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS chat_messages_session_idx
+  ON chat_messages(session_id, created_at);
 
 -- FR-9: persistable quote draft. The .xlsx is an export of this, not the source of truth.
 CREATE TABLE IF NOT EXISTS quote_drafts (
@@ -88,9 +112,61 @@ CREATE TABLE IF NOT EXISTS quote_lines (
   substitution_notes  text,
   unit_cost           double precision,
   margin_rate         double precision,
+  -- Where the quantity and the size were READ, not what they are. A number with no
+  -- provenance is a guess, and a guess is what put three invented grab-bar sizes at qty 1
+  -- each into a quote whose schedule stated neither.
+  quantity_source     text,
+  size_source         text,
   deleted_at          timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
+-- schema.sql is replayed wholesale on every gateway start, and CREATE TABLE IF NOT EXISTS
+-- will not add a column to a table that already exists. New columns need their own ALTER.
+ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS quantity_source text;
+ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS size_source text;
+
 CREATE INDEX IF NOT EXISTS quote_lines_draft_idx ON quote_lines(draft_id, section, sort_order);
+
+-- Every message the poller has seen, and what was decided about it.
+--
+-- Two jobs in one table. The primary key is the RFC 5322 Message-ID, which makes it the
+-- idempotency claim: a replica that cannot insert the row is not the one processing that
+-- message, so `--scale agent=3` does not estimate the same email three times, and a crash
+-- between writing the file and flagging the mail read replays exactly once.
+--
+-- It is also the audit trail. A refusal writes a row too - an inbox that silently drops
+-- mail is indistinguishable from one that is broken.
+CREATE TABLE IF NOT EXISTS email_intake (
+  message_id  text PRIMARY KEY,
+  sender      text NOT NULL,
+  subject     text,
+  received_at timestamptz,
+  project_id  uuid REFERENCES projects(id) ON DELETE SET NULL,
+  outcome     text NOT NULL
+              CHECK (outcome IN ('claimed', 'accepted', 'rejected_sender', 'rejected_auth',
+                                 'rejected_file', 'rejected_quota', 'error')),
+  detail      text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- The per-sender daily quota counts accepted rows for one address.
+CREATE INDEX IF NOT EXISTS email_intake_sender_idx ON email_intake(sender, created_at DESC);
+
+-- How far through a mailbox the poller has read.
+--
+-- The first version tracked progress by flagging messages \Seen, which works on a mailbox
+-- that exists only for this - and quietly marks a person's real mail as read anywhere
+-- else. IMAP UIDs ascend monotonically within a mailbox, so a high-water mark gives the
+-- same "don't look at it twice" guarantee while never writing to the mailbox at all.
+--
+-- uid_validity is the reset signal: the server changes it when UIDs are renumbered, and
+-- the old high-water mark means nothing afterwards.
+CREATE TABLE IF NOT EXISTS mail_cursor (
+  mailbox      text PRIMARY KEY,
+  uid_validity bigint NOT NULL,
+  last_uid     bigint NOT NULL DEFAULT 0,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);

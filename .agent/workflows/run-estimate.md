@@ -27,12 +27,19 @@ Write the job record to `memory/active_project.json` with `phase_completed: 1`.
 is the authority for what each opening requires. Capture fire ratings. Declare in-scope and
 out-of-scope trades explicitly.
 
-**Phase 3 — Take-offs.** `read_schedule` on every schedule sheet, never flat text. Enumerate
-every row and report the tags exactly as they appear — numbering skips. Decode the hardware
-schedule's column headers so each opening's X marks resolve to the specific product
-specified. `parse_door_size`, `calculate_frame_throat`. For Division 10, search several
-vocabularies and fall back to `read_layout` and `render_sheet` — accessories are often
-keynotes, not a schedule.
+**Phase 3 — Take-offs.** Locate first, then read. `find_schedule(doc_id, kind)` for `door`,
+`hardware`, `accessory` and `finish` — never guess a sheet number, numbering is a per-firm
+convention. Clear `plan_overview`'s `vision_outstanding` before taking a quantity off any
+sheet: a count that exists only as tags, and a size the schedule leaves to the elevation,
+are not in the text layer.
+
+Then `read_schedule` on what discovery returned, never flat text. Enumerate every row and
+report the tags exactly as they appear — numbering skips. Decode the hardware schedule's
+column headers so each opening's X marks resolve to the specific product specified.
+`parse_door_size`, `calculate_frame_throat`. For Division 10, accessories are often keynotes
+rather than a schedule — fall back to `read_layout` and `render_sheet`, and check
+`absence_established` before reporting anything as absent. Record a `quantity_source` and a
+`size_source` on every line; `format_cbc_proposal` rejects lines without them.
 
 **Phase 3b — FRP.** Perimeter, height, corners → `calculate_frp_takeoff`. Carry its
 `provisional` flag onto every FRP line.

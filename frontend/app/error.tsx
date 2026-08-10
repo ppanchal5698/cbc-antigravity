@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { Failure } from '@/components/shell/state';
 
 export default function Error({
   error,
@@ -15,12 +15,19 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <h2 className="text-sm font-semibold">Something went wrong.</h2>
-      <p className="max-w-md text-xs break-words text-muted-foreground">{error.message}</p>
-      <Button size="sm" variant="secondary" onClick={reset}>
+    <div className="page-enter flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8">
+      <Failure
+        className="w-full max-w-md"
+        title="Something went wrong on this desk."
+        detail={error.message}
+      />
+      <button
+        type="button"
+        onClick={reset}
+        className="bg-signal text-primary-foreground hover:bg-signal/90 cursor-pointer rounded-md px-3 py-1.5 text-[12px] font-medium"
+      >
         Try again
-      </Button>
+      </button>
     </div>
   );
 }

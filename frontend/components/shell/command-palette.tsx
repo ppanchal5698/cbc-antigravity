@@ -82,7 +82,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Search"
-        className="border-rule bg-panel w-full max-w-2xl overflow-hidden rounded-lg border"
+        className="border-rule bg-panel w-full max-w-2xl overflow-hidden rounded-md border"
         style={{ boxShadow: 'var(--elev-overlay)' }}
       >
         <input

@@ -1,7 +1,5 @@
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { query } from '@/lib/db';
-import { PROJECTS_DIR, uniqueSlug } from '@/lib/projects';
+import { createProject } from '@/lib/intake';
 import type { Project } from '@/types/events';
 
 export const dynamic = 'force-dynamic';
@@ -35,69 +33,24 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    // The row lands first and the folder is created only once it has committed, so a
-    // folder can never outlive a rolled-back insert. Doing it the other way round left
-    // an orphan directory behind whenever COMMIT itself failed, and `mkdir` is not
-    // transactional however deep inside the transaction it is called.
-    let project: Project | undefined;
-    let slug = '';
+    // A person typing a name is told to pick another; the mail poller has nobody to ask,
+    // so it calls `createProjectDeduped` instead. Same creation path either way.
+    const result = await createProject(name);
+    if (result.ok) return Response.json({ project: result.project }, { status: 201 });
 
-    for (let attempt = 0; attempt < 2 && !project; attempt += 1) {
-      const existing = await query<{ slug: string }>('SELECT slug FROM projects');
-      const taken = new Set(existing.map((row) => row.slug));
-      // Two requests can pass this check at once; the unique index is the real
-      // arbiter and the retry below is what makes losing that race harmless.
-      if (attempt > 0) taken.add(slug);
-      slug = uniqueSlug(name, taken);
-
-      try {
-        const rows = await query<Project>(
-          `INSERT INTO projects (name, slug, folder_path)
-           VALUES ($1, $2, $3)
-           RETURNING *`,
-          [name, slug, join(PROJECTS_DIR, slug)],
-        );
-        project = rows[0];
-      } catch (err) {
-        // A name collision is the user's to resolve. A slug collision is ours - two
-        // different names can slugify the same way - and used to surface as
-        // "a project with that name already exists", which was simply untrue.
-        if (violated(err, 'name')) {
-          return Response.json(
-            { error: 'A project with that name already exists' },
-            { status: 409 },
-          );
-        }
-        if (!violated(err, 'slug') || attempt === 1) throw err;
-      }
+    if (result.reason === 'name_taken') {
+      return Response.json({ error: 'A project with that name already exists' }, { status: 409 });
     }
-
-    if (!project) {
+    if (result.reason === 'no_slug') {
       return Response.json({ error: 'Could not allocate a project folder name' }, { status: 409 });
     }
-
-    try {
-      await mkdir(project.folder_path, { recursive: true });
-    } catch (err) {
-      await query('DELETE FROM projects WHERE id = $1', [project.id]).catch(() => {});
-      return Response.json(
-        { error: `Could not create the project folder: ${message(err)}` },
-        { status: 500 },
-      );
-    }
-
-    return Response.json({ project }, { status: 201 });
+    return Response.json(
+      { error: `Could not create the project folder: ${result.detail ?? 'unknown'}` },
+      { status: 500 },
+    );
   } catch (err) {
     return Response.json({ error: message(err) }, { status: 500 });
   }
-}
-
-/** True for a unique-violation on the named column's constraint. */
-function violated(err: unknown, column: 'name' | 'slug'): boolean {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return false;
-  if ((err as { code?: string }).code !== '23505') return false;
-  const constraint = (err as { constraint?: string }).constraint ?? '';
-  return constraint.includes(column);
 }
 
 function message(err: unknown): string {

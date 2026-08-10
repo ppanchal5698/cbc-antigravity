@@ -11,8 +11,13 @@ export function Empty({
   className?: string;
 }) {
   return (
-    <div className={cn('rounded-lg border border-dashed border-rule py-14 text-center', className)}>
-      <p className="text-ink-muted text-[13px]">{title}</p>
+    <div
+      className={cn(
+        'border-rule rounded-md border border-dashed bg-sunken/30 py-14 text-center',
+        className,
+      )}
+    >
+      <p className="text-ink-muted mx-auto max-w-md px-4 text-[13px] leading-relaxed">{title}</p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );
@@ -45,7 +50,7 @@ export function Marker({
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-[1.4] whitespace-nowrap',
+        'status-fade inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-[1.4] whitespace-nowrap',
         tone === 'signal' && 'border-signal/30 bg-signal-wash text-signal',
         tone === 'alert' && 'border-alert/30 bg-alert-wash text-alert',
         tone === 'ink' && 'border-rule-strong bg-sunken text-ink',

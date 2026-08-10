@@ -70,7 +70,7 @@ export function UploadDrop({
         void upload(e.dataTransfer.files);
       }}
       className={cn(
-        'border-rule bg-panel rounded-lg border border-dashed px-4 py-8 text-center transition-colors',
+        'border-rule bg-panel rounded-md border border-dashed px-4 py-10 text-center transition-colors',
         over && 'border-signal bg-signal-wash',
       )}
     >

@@ -41,79 +41,90 @@ export default async function ShelfPage() {
       <p className="text-ink-muted max-w-prose py-5 text-[13px] leading-relaxed">
         Every price in this index is a <strong className="text-ink font-medium">list</strong> price
         unless the book states otherwise. Multipliers come from the estimating engine, not from the
-        filename. A text-only book&apos;s silence is not evidence a vendor does not carry a part.
+        filename. A text-only or partial book&apos;s silence is not evidence a vendor does not carry
+        a part — open the book pages.
       </p>
 
-      <div className="space-y-3 pt-1">
-        {vendors.map((vendor) => {
-          const matched = tierFor(reference, vendor.folder);
-          const textOnly = vendor.coverage === 'text_only';
-          return (
-            <Link
-              key={vendor.folder}
-              href={`/shelf/${encodeURIComponent(vendor.folder)}`}
-              className="panel group grid grid-cols-1 gap-x-8 gap-y-4 p-4 no-underline transition-shadow hover:shadow-[var(--elev-overlay)] md:grid-cols-12"
-            >
-              <div className="md:col-span-4">
-                <h2 className="group-hover:text-signal text-[17px] font-semibold tracking-[-0.01em] transition-colors">
-                  {vendor.folder}
-                </h2>
-                <p className="text-ink-muted mt-1 text-[12px]">
-                  {matched?.tier.vendor_name ?? vendor.vendor}
-                </p>
-                <p className="mt-2.5">
-                  <Marker tone={matched?.tier.multiplier === null ? 'alert' : 'ink'}>
-                    {formatTier(matched?.tier)}
-                  </Marker>
-                </p>
-              </div>
-
-              <div className="md:col-span-4">
-                <CoverageBar
-                  coverage={vendor.coverage}
-                  pagesParsed={vendor.books.reduce((n, b) => n + b.pagesParsed, 0)}
-                  pages={vendor.pages}
-                />
-                <ul className="text-ink-muted mt-3 space-y-1 text-[12px]">
-                  {vendor.books.map((book) => (
-                    <li key={book.catalogId} className="truncate" title={book.file}>
-                      {book.file}
-                    </li>
-                  ))}
-                </ul>
-                {textOnly ? (
-                  <p className="text-signal mt-3 text-[12px] group-hover:underline">
-                    Open book pages — needs structured parse (silence ≠ not carried)
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="grid grid-cols-3 gap-6 md:col-span-4">
-                <Stat label="Books" value={count(vendor.books.length)} />
-                <Stat label="Models" value={count(vendor.models)} />
-                {textOnly ? (
-                  <div className="text-right">
-                    <p className="t-label mb-1.5">Price rows</p>
-                    <Marker tone="muted">Text only</Marker>
-                  </div>
-                ) : (
-                  <Stat label="Price rows" value={count(vendor.priceRows)} />
-                )}
-              </div>
-            </Link>
-          );
-        })}
+      <div className="panel scroll-x overflow-hidden">
+        <table className="ledger">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Cost basis</th>
+              <th>Coverage</th>
+              <th>Books</th>
+              <th className="text-right">Models</th>
+              <th className="text-right">Price rows</th>
+              <th className="text-right">Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {vendors.map((vendor) => {
+              const matched = tierFor(reference, vendor.folder);
+              const textOnly = vendor.coverage === 'text_only';
+              const partial = vendor.coverage === 'partial';
+              return (
+                <tr key={vendor.folder}>
+                  <td className="min-w-[10rem]">
+                    <Link
+                      href={`/shelf/${encodeURIComponent(vendor.folder)}`}
+                      className="hover:text-signal text-[14px] font-medium transition-colors"
+                    >
+                      {vendor.folder}
+                    </Link>
+                    <p className="text-ink-muted mt-0.5 text-[11px]">
+                      {matched?.tier.vendor_name ?? vendor.vendor}
+                    </p>
+                  </td>
+                  <td>
+                    <Marker tone={matched?.tier.multiplier === null ? 'alert' : 'ink'}>
+                      {formatTier(matched?.tier)}
+                    </Marker>
+                  </td>
+                  <td className="min-w-[11rem]">
+                    <CoverageBar
+                      coverage={vendor.coverage}
+                      pagesParsed={vendor.books.reduce((n, b) => n + b.pagesParsed, 0)}
+                      pages={vendor.pages}
+                    />
+                    {textOnly || partial ? (
+                      <p className="text-signal mt-1.5 text-[11px]">
+                        Inspection needed — silence ≠ not carried
+                      </p>
+                    ) : null}
+                  </td>
+                  <td className="text-ink-muted max-w-[14rem] text-[12px]">
+                    <ul className="space-y-0.5">
+                      {vendor.books.map((book) => (
+                        <li key={book.catalogId} className="truncate" title={book.file}>
+                          {book.file}
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                  <td className="num">{count(vendor.models)}</td>
+                  <td className="num">
+                    {textOnly ? (
+                      <Marker tone="muted">Text only</Marker>
+                    ) : (
+                      count(vendor.priceRows)
+                    )}
+                  </td>
+                  <td className="num">
+                    <Link
+                      href={`/shelf/${encodeURIComponent(vendor.folder)}`}
+                      className="text-signal hover:text-ink text-[12px] font-medium no-underline"
+                    >
+                      Browse
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
       <ScopedChat scope="shelf" vendorFolders={vendors.map((vendor) => vendor.folder)} />
     </Page>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="text-right">
-      <p className="t-label mb-1.5">{label}</p>
-      <p className="font-mono text-[15px] leading-none">{value}</p>
-    </div>
   );
 }

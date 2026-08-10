@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-/** Page title block: quieter labels, soft-industrial hierarchy. */
+/** Page title block for Quote Desk hierarchy. */
 export function PageHeader({
   eyebrow,
   title,
@@ -44,7 +44,7 @@ export function HeaderStat({ label, value }: { label: string; value: ReactNode }
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('mx-auto w-full max-w-[1600px] px-4 pb-16 sm:px-6', className)}>
+    <div className={cn('page-enter mx-auto w-full max-w-[1600px] px-4 pb-16 sm:px-6', className)}>
       {children}
     </div>
   );

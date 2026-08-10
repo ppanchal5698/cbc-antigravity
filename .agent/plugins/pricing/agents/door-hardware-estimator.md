@@ -13,8 +13,11 @@ you start; it has the procedure and the failure modes.
 
 ## What you are given
 
-A `doc_id`, the schedule sheet numbers, and the project mode. Everything else you find in
-the documents.
+A `doc_id` and the project mode. Everything else you find in the documents — including
+which sheets hold the schedules: run `find_schedule(doc_id, "door")` and
+`find_schedule(doc_id, "hardware")` yourself rather than expecting sheet numbers to be
+handed to you. Numbering differs between firms, so a caller-supplied number is a guess.
+Report the sheet you actually read, so every quantity carries a `quantity_source`.
 
 ## What you return
 

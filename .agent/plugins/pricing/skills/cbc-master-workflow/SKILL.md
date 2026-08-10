@@ -72,9 +72,15 @@ Read the specification, not the drawings, and establish what is being quoted.
 
 Quantities come from the drawings and only from the drawings.
 
-1. **Door schedule** — `read_schedule(doc_id, sheet)`, never flat text. Capture per opening:
-   tag, size code, door and frame material, wall type, handing, fire rating, hardware group.
-   Enumerate every row; numbering skips, and `01, 02, 03, 06` is four doors.
+0. **Find the schedules first** — `find_schedule(doc_id, "door")`, `"hardware"`,
+   `"accessory"`, `"finish"`. Never guess a sheet number: numbering is a per-firm
+   convention and some sets have none that parses. Check `absence_established` before
+   treating "no candidates" as "not in the set".
+1. **Door schedule** — `read_schedule(doc_id, sheet)` on the sheet discovery returned, never
+   flat text. Capture per opening: tag, size code, door and frame material, wall type,
+   handing, fire rating, hardware group. Enumerate every row; numbering skips, and
+   `01, 02, 03, 06` is four doors. Record which sheet each quantity came from — the audit
+   gate requires a `quantity_source`.
 2. `parse_door_size(code)` for widths that drive kick plates, sweeps and thresholds.
 3. `calculate_frame_throat(wall_type)`, or `okf_query("frame_throat", "<wall description>")`
    for a learned mapping. Five standard depths cover most work; anything else is a custom

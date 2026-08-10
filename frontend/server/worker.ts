@@ -10,7 +10,7 @@ import { runAgy, WORKSPACE_ROOT } from './agy.ts';
 import { getRunBuffer, toFrames } from './events.ts';
 import { query } from './db.ts';
 import { buildQuotationWorkbook } from '../lib/xlsx/quotation.ts';
-import { coerceQuotation, extractJson } from '../lib/xlsx/coerce.ts';
+import { coerceQuotation, extractJson, readAuditVerdict } from '../lib/xlsx/coerce.ts';
 import { persistQuotationDraft } from '../lib/quote-draft.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -47,10 +47,34 @@ function estimatePrompt(run: ClaimedRun): string {
     'cost_source, citations) rather than filling the gaps yourself — leave those lines',
     'unpriced and raise them in `rfis` with [not stated], [not indexed] or [not carried].',
     '',
+    'Finish with format_cbc_proposal and copy its `audit_passed` and `audit_failures` into',
+    'the JSON as `auditPassed` and `auditFailures`, VERBATIM. The engine decides whether a',
+    'package is ready - never assess that yourself, and never report a pass it did not give.',
+    'No workbook is written unless auditPassed is true, so an honest failure list is what',
+    'tells the estimator which lines to fix.',
+    '',
+    'Pass `state` to format_cbc_proposal, read off the cover sheet - the SITE address, not',
+    'the franchisor or architect office in the same title block. It has no default.',
+    '',
+    'Every line states its cost position, and there is a value for each of them. A price',
+    'you obtained names its path (catalog_list_x_multiplier, p21_last_po,',
+    'manual_wholesaler_net, vendor_rfq, custom_fabricator). A line with NO cost says why',
+    'instead - `not_carried`, `owner_supplied` or `excluded` - and must then be 0.00, with',
+    'a detail naming which sections you searched and what the estimator does next.',
+    'Never leave cost_source blank: "I could not price this" is a position, and these are',
+    'how you state it.',
+    '',
+    'Search before you declare. `not_carried` is a claim about the shelf - run list_division',
+    'and match_materials on the CSI section first. Division 10 28 13 hand dryers and 10 28 00',
+    'accessories are covered by vendors on this shelf; 10 44 00 extinguisher cabinets are not.',
+    '',
     'Return the final answer as a single JSON object conforming to the supplied schema.',
-    'Every line must carry its cost source and its plan/catalog citation - the audit gate',
-    'rejects lines that do not. Do not invent a price, a model number, a multiplier or an',
-    'adder value. Do not replace the JSON with free-form proposal prose.',
+    'Every line must carry its cost source, its plan/catalog citation, and `quantitySource`',
+    'saying where the number was read (`schedule:<sheet> row <tag>`, `tag_count:<sheet>`,',
+    '`vision:<sheet>`) plus `sizeSource` when the description states a size. The estimator',
+    'sees these on the review screen: they are how a quantity is told apart from a guess.',
+    'Do not invent a price, a model number, a multiplier or an adder value. Do not replace',
+    'the JSON with free-form proposal prose.',
   ].join('\n');
 }
 
@@ -96,7 +120,21 @@ async function processRun(run: ClaimedRun): Promise<void> {
       }
     }
 
-    const quotation = coerceQuotation(extractJson(response), run.project_name);
+    const payload = extractJson(response);
+
+    // The audit gate decides whether this run produced a quote or a draft that only looks
+    // like one. Failing here costs an estimator a re-run; exporting anyway costs them a
+    // number they trusted.
+    const verdict = readAuditVerdict(payload);
+    if (!verdict.passed) {
+      throw new Error(
+        `Estimate held NOT READY by the audit gate (${verdict.failures.length} ` +
+        `failure${verdict.failures.length === 1 ? '' : 's'}); no workbook was written.\n- ` +
+        verdict.failures.join('\n- '),
+      );
+    }
+
+    const quotation = coerceQuotation(payload, run.project_name);
     const outputPath = join(run.folder_path, `CBC_Material_Quotation_${run.slug}.xlsx`);
     await persistQuotationDraft(run.id, run.project_id, quotation);
     await buildQuotationWorkbook(quotation).xlsx.writeFile(outputPath);

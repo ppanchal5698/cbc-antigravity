@@ -23,6 +23,8 @@ export type RunAgyOptions = {
   jsonSchemaPath?: string;
   /** Extra directories to add to the agent's workspace. */
   addDirs?: string[];
+  /** Overrides AGY_EFFORT for this run - the gate's classifier needs no deliberation. */
+  effort?: string;
   timeout?: string;
   signal?: AbortSignal;
 };
@@ -41,7 +43,8 @@ export function buildArgs(opts: RunAgyOptions): string[] {
   if (opts.conversationId) args.push('--conversation', opts.conversationId);
   if (opts.jsonSchemaPath) args.push('--json-schema', opts.jsonSchemaPath);
   if (process.env.AGY_MODEL) args.push('--model', process.env.AGY_MODEL);
-  if (process.env.AGY_EFFORT) args.push('--effort', process.env.AGY_EFFORT);
+  const effort = opts.effort || process.env.AGY_EFFORT;
+  if (effort) args.push('--effort', effort);
   for (const dir of opts.addDirs || []) args.push('--add-dir', dir);
   return args;
 }
@@ -101,6 +104,10 @@ export async function* runAgy(opts: RunAgyOptions): AsyncGenerator<AgyRawEvent> 
     child.on('error', reject);
     child.on('close', (code) => resolve({ code }));
   });
+  // A spawn failure (missing binary) rejects before the read loop reaches `await exited`,
+  // and an unhandled rejection takes the whole gateway down. Mark it handled now; the
+  // await below still throws, so the caller sees the error instead of a dead process.
+  exited.catch(() => {});
 
   try {
     const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });

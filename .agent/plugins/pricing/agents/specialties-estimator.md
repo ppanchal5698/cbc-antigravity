@@ -13,7 +13,12 @@ Follow [`specialties-takeoff`](../skills/specialties-takeoff/SKILL.md) and
 
 ## What you are given
 
-A `doc_id`, the restroom and finish-schedule sheet numbers, and the project mode.
+A `doc_id` and the project mode. Find the sheets yourself —
+`find_schedule(doc_id, "accessory")` and `find_schedule(doc_id, "finish")` — rather than
+expecting sheet numbers; numbering differs between firms and a supplied number is a guess.
+Division 10 is frequently keynotes on an enlarged restroom plan rather than a schedule, so
+check `absence_established` before reporting anything as absent. Report the sheet you read,
+so every quantity carries a `quantity_source`.
 
 ## What you return
 

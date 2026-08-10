@@ -39,9 +39,9 @@ export default async function SheetsPage({ searchParams }: PageProps<'/sheets'>)
       />
 
       <p className="text-ink-muted max-w-prose py-5 text-[13px] leading-relaxed">
-        A sheet identified by its title block is trustworthy; one identified by a bookmark, or not
-        at all, is a guess. Sheets marked for vision still need a rendering pass before anything on
-        them is quoted.
+        Read-only index of title blocks. A sheet identified by its title block is trustworthy; one
+        identified by a bookmark, or not at all, is a guess. Sheets marked for vision still need a
+        rendering pass before anything on them is quoted.
       </p>
 
       <SheetIndex docs={docs} sheets={sheets} initialQuery={initialQuery} />

@@ -63,6 +63,8 @@ export type QuoteLineRow = {
   substitution_notes: string | null;
   unit_cost: number | null;
   margin_rate: number | null;
+  quantity_source: string | null;
+  size_source: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -109,6 +111,8 @@ function linePayload(
     line.substitutionNotes ?? null,
     line.unitCost ?? null,
     line.marginRate ?? null,
+    line.quantitySource ?? null,
+    line.sizeSource ?? null,
   ];
 }
 
@@ -140,7 +144,7 @@ export async function persistQuotationDraft(
     const rows = batches.flatMap((batch) =>
       batch.lines.map((line, i) => [draftId, ...linePayload(batch.section, i, line)]),
     );
-    const COLUMNS = 18;
+    const COLUMNS = 20;
     const CHUNK = 500; // 9000 parameters, well inside Postgres's 65535 limit
 
     for (let start = 0; start < rows.length; start += CHUNK) {
@@ -153,7 +157,8 @@ export async function persistQuotationDraft(
         `INSERT INTO quote_lines (
            draft_id, section, sort_order, tag, room, description, qty, unit,
            unit_sale, cost_basis, citations, confidence, acceptance,
-           pricing_status, price_freshness, substitution_notes, unit_cost, margin_rate
+           pricing_status, price_freshness, substitution_notes, unit_cost, margin_rate,
+           quantity_source, size_source
          ) VALUES ${tuples.join(',')}`,
         chunk.flat(),
       );
@@ -179,6 +184,7 @@ export async function getDraftByRunId(
     `SELECT id, draft_id, section, sort_order, tag, room, description, qty, unit,
             unit_sale, cost_basis, citations, confidence, acceptance, pricing_status,
             price_freshness, substitution_notes, unit_cost, margin_rate,
+            quantity_source, size_source,
             deleted_at::text, created_at::text, updated_at::text
        FROM quote_lines
       WHERE draft_id = $1
@@ -205,6 +211,8 @@ function rowToQuotationLine(row: QuoteLineRow): QuotationLine {
     substitutionNotes: row.substitution_notes,
     unitCost: row.unit_cost,
     marginRate: row.margin_rate,
+    quantitySource: row.quantity_source,
+    sizeSource: row.size_source,
   };
 }
 
@@ -278,6 +286,8 @@ export type LinePatch = {
   substitution_notes?: string | null;
   unit_cost?: number | null;
   margin_rate?: number | null;
+  quantity_source?: string | null;
+  size_source?: string | null;
   deleted?: boolean;
 };
 
@@ -300,7 +310,7 @@ export async function patchQuoteLine(
     `SELECT l.id, l.draft_id, l.section, l.sort_order, l.tag, l.room, l.description,
             l.qty, l.unit, l.unit_sale, l.cost_basis, l.citations, l.confidence,
             l.acceptance, l.pricing_status, l.price_freshness, l.substitution_notes,
-            l.unit_cost, l.margin_rate,
+            l.unit_cost, l.margin_rate, l.quantity_source, l.size_source,
             l.deleted_at::text, l.created_at::text, l.updated_at::text,
             d.status AS draft_status
        FROM quote_lines l
@@ -332,6 +342,16 @@ export async function patchQuoteLine(
         : row.substitution_notes,
     unit_cost: patch.unit_cost !== undefined ? patch.unit_cost : row.unit_cost,
     margin_rate: patch.margin_rate !== undefined ? patch.margin_rate : row.margin_rate,
+    // An estimator who changes a quantity owns it from then on. Leaving the old
+    // `schedule:A1.2` attached would credit the drawing for a number a human overrode -
+    // the provenance has to follow the edit or it stops meaning anything.
+    quantity_source:
+      patch.quantity_source !== undefined
+        ? patch.quantity_source
+        : patch.qty !== undefined && patch.qty !== row.qty
+          ? 'estimator_confirmed'
+          : row.quantity_source,
+    size_source: patch.size_source !== undefined ? patch.size_source : row.size_source,
     deleted_at: patch.deleted === true ? new Date().toISOString() : patch.deleted === false ? null : row.deleted_at,
   };
 
@@ -341,11 +361,13 @@ export async function patchQuoteLine(
        unit_sale = $7, cost_basis = $8, citations = $9, confidence = $10,
        acceptance = $11, pricing_status = $12, price_freshness = $13,
        substitution_notes = $14, unit_cost = $15, margin_rate = $16,
-       deleted_at = $17, updated_at = now()
+       quantity_source = $17, size_source = $18,
+       deleted_at = $19, updated_at = now()
      WHERE id = $1
      RETURNING id, draft_id, section, sort_order, tag, room, description, qty, unit,
                unit_sale, cost_basis, citations, confidence, acceptance, pricing_status,
                price_freshness, substitution_notes, unit_cost, margin_rate,
+               quantity_source, size_source,
                deleted_at::text, created_at::text, updated_at::text`,
     [
       lineId,
@@ -364,6 +386,8 @@ export async function patchQuoteLine(
       next.substitution_notes,
       next.unit_cost,
       next.margin_rate,
+      next.quantity_source,
+      next.size_source,
       next.deleted_at,
     ],
   );
@@ -405,11 +429,13 @@ export async function addQuoteLine(
   const rows = await query<QuoteLineRow>(
     `INSERT INTO quote_lines (
        draft_id, section, sort_order, tag, room, description, qty, unit,
-       unit_sale, cost_basis, citations, acceptance, pricing_status, substitution_notes
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13)
+       unit_sale, cost_basis, citations, acceptance, pricing_status, substitution_notes,
+       quantity_source
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,'estimator_confirmed')
      RETURNING id, draft_id, section, sort_order, tag, room, description, qty, unit,
                unit_sale, cost_basis, citations, confidence, acceptance, pricing_status,
                price_freshness, substitution_notes, unit_cost, margin_rate,
+               quantity_source, size_source,
                deleted_at::text, created_at::text, updated_at::text`,
     [
       draftId,

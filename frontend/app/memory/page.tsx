@@ -1,7 +1,7 @@
 import { CLASS_LABEL, readKnowledgeGraph } from '@/lib/graph';
 import { catalogIndexReady, listVendors } from '@/lib/catalog';
 import { ScopedChat } from '@/components/chat/scoped-chat';
-import { MemoryGraph } from '@/components/memory/graph';
+import { MemoryBrowser } from '@/components/memory/memory-browser';
 import { Page, PageHeader, HeaderStat, Section } from '@/components/shell/page-header';
 import { Figure, FigureRow, count } from '@/components/shell/figure';
 import { Empty, Failure } from '@/components/shell/state';
@@ -39,7 +39,6 @@ export default async function MemoryPage() {
         }
       />
 
-      {/* Counts come from the arrays: metadata.total_nodes in the file is stale. */}
       <FigureRow className="mt-2">
         <Figure label="Nodes" value={count(graph.nodes.length)} />
         <Figure label="Edges" value={count(graph.edges.length)} />
@@ -64,15 +63,12 @@ export default async function MemoryPage() {
         />
       ) : null}
 
-      <Section label="Graph" panel aside="click a node">
-        <div className="p-3">
-          <MemoryGraph nodes={graph.nodes} edges={graph.edges} />
-        </div>
+      <Section label="Graph" panel aside="search or click a node" className="pt-8">
+        <MemoryBrowser nodes={graph.nodes} edges={graph.edges} />
       </Section>
 
       <div className="grid gap-4 pt-8 md:grid-cols-2">
-        <div className="panel overflow-hidden">
-          <h2 className="border-rule border-b px-4 py-2.5 text-[13px] font-semibold">Entity classes</h2>
+        <Section label="Entity classes" panel className="pt-0">
           <table className="ledger">
             <tbody>
               {graph.byClass.map((entry) => (
@@ -84,10 +80,9 @@ export default async function MemoryPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Section>
 
-        <div className="panel overflow-hidden">
-          <h2 className="border-rule border-b px-4 py-2.5 text-[13px] font-semibold">Relation types</h2>
+        <Section label="Relation types" panel className="pt-0">
           <table className="ledger">
             <tbody>
               {graph.edgeTypes.map((entry) => (
@@ -98,7 +93,7 @@ export default async function MemoryPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Section>
       </div>
 
       <Section label="Policy" panel className="pt-8">
