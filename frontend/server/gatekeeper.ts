@@ -74,7 +74,7 @@ export const DOMAIN_SIGNALS: RegExp[] = [
   //
   // `opening` and the exclusion words are here because Phase 2's exit gate REQUIRES
   // declaring out-of-scope trades, and asking about one used to be refused outright.
-  /\b(throat depth|hardware set|door schedule|frame|hollow metal|wood door|lite|louver|threshold|gasketing|weatherstrip|finish code|hand dryer|grab bar|partition|frp|vinyl moulding|quote line|price book|price list|price row|catalog(?:ue)?|the shelf|vendor|coverage|text_only|multiplier|margin band|list price|net (?:price|cost)|price_basis|already_net|sales tax|proposal|submittal|rfi|rfq|bid set|plan set|keynote|spec section|cross-?reference|crossover|price override|opening)(?:e?s)?\b/i,
+  /\b(throat depth|hardware set|door schedule|frame|hollow metal|wood door|lite|louver|threshold|gasketing|weatherstrip|finish code|hand dryer|grab bar|partition|frp|vinyl moulding|quote line|price book|price list|price row|catalog(?:ue)?|the shelf|vendor|coverage|text_only|multiplier|margin band|list price|net (?:price|cost)|price_basis|already_net|sales tax|proposal|submittal|rfi|rfq|bid set|plan set|keynote|spec section|cross-?reference|crossover|price override|opening|cost age|price freshness|quote total|grand total|line item)(?:e?s)?\b/i,
   // Stems, matched as prefixes on purpose. These were written as stems but anchored with
   // `\b`, which meant they matched ONLY the bare stem - `estimat` matched "estimat" and
   // never "estimate", "estimating" or "estimator", and `washroom accessor` never matched
