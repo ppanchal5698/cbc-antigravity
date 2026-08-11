@@ -807,6 +807,38 @@ class TestDutchBrosUnderScoping(unittest.TestCase):
         self.assertTrue(any("substitution_note" in f["problem"]
                             for f in res["audit_failures"]))
 
+    def test_alternate_lines_are_audited_like_the_base_bid(self):
+        """Alternates were summed and taxed while skipping the audit loop entirely, so an
+        unsourced line passed inside an alternate and failed in the base bid."""
+        unsourced = {"tag": "ALT-01", "quantity": 1, "ext_sale": 500.0,
+                     "description": "Alternate storefront-adjacent HM opening"}
+        base = {"tag": "01", "quantity": 1, "ext_sale": 100.0,
+                "description": "Threshold", **self.BASE}
+
+        res = engine.format_cbc_proposal(
+            "Dutch Bros", [base], [], state="VA",
+            alternates_lines=[{"name": "Alt 1", "lines": [unsourced]}])
+
+        self.assertFalse(res["audit_passed"], res["audit_failures"])
+        blocks = {f["block"] for f in res["audit_failures"]}
+        self.assertIn("alternate:Alt 1", blocks, res["audit_failures"])
+        problems = " ".join(f["problem"] for f in res["audit_failures"])
+        self.assertIn("no cost_source", problems)
+        self.assertIn("no provenance", problems)
+
+    def test_a_clean_alternate_still_passes(self):
+        """The gate must not make a correctly-sourced alternate impossible to express."""
+        base = {"tag": "01", "quantity": 1, "ext_sale": 100.0,
+                "description": "Threshold", **self.BASE}
+        alt_line = {"tag": "ALT-01", "quantity": 2, "ext_sale": 200.0,
+                    "description": "Alternate threshold", **self.BASE}
+        res = engine.format_cbc_proposal(
+            "Dutch Bros", [base], [], state="VA",
+            alternates_lines=[{"name": "Alt 1", "lines": [alt_line]}])
+        self.assertTrue(res["audit_passed"], res["audit_failures"])
+        self.assertEqual(res["alternates"][0]["ext_sale"], 200.0)
+        self.assertTrue(any("Open Item 11" in item for item in res["open_items"]))
+
     def test_missing_state_is_blocked_not_defaulted(self):
         """`state` used to default to OH, which taxed this Virginia job at Ohio's 8%."""
         line = {"tag": "01", "quantity": 1, "ext_sale": 100.0,

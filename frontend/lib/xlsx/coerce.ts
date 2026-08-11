@@ -157,48 +157,94 @@ export function extractJson(response: string): unknown {
 }
 
 /**
- * The engine's audit verdict, read off the same payload the quotation came from.
+ * The lines in the shape `cbc_engine.engine.format_cbc_proposal` audits.
  *
- * Kept separate from `QuotationData` because it is not something the workbook renders -
- * it decides whether a workbook may be written at all. `format_cbc_proposal` holds a
- * package NOT READY when a line does not deliver what it describes; before this existed
- * the worker exported regardless, which is how a $107 quote for four hollow metal door
- * assemblies reached a spreadsheet looking finished.
+ * Deliberately NOT built from `QuotationLine`. The workbook renders nine columns and needs
+ * none of this; the audit needs `components`, `hardware_group` and the two manufacturer
+ * fields, which the workbook would only carry around. Reading straight off the payload
+ * keeps the audit shape and the render shape independent, so neither drags the other.
  *
- * Absence is not consent: a payload with no verdict is treated as not audited.
+ * snake_case on purpose - these dicts go to Python and are consumed by the engine as-is.
  */
-export type AuditVerdict = { passed: boolean; failures: string[] };
+export type EngineAuditLine = Record<string, unknown>;
 
-export function readAuditVerdict(raw: unknown): AuditVerdict {
-  if (!raw || typeof raw !== 'object') return { passed: false, failures: ['no payload'] };
-  const source = raw as Record<string, unknown>;
-  const rawFailures = Array.isArray(source.auditFailures)
-    ? source.auditFailures
-    : Array.isArray(source.audit_failures)
-      ? source.audit_failures
-      : [];
-  const failures = rawFailures.map((item) => {
-    if (item && typeof item === 'object') {
-      const f = item as Record<string, unknown>;
-      const where = str(f.line) || str(f.block);
-      const problem = str(f.problem);
-      const fix = str(f.fix);
-      return [where && `[${where}]`, problem, fix && `→ ${fix}`].filter(Boolean).join(' ');
-    }
-    return str(item);
-  }).filter(Boolean);
+function toAuditLine(raw: unknown): EngineAuditLine {
+  const source = (raw ?? {}) as Record<string, unknown>;
 
-  const flag = source.auditPassed ?? source.audit_passed;
-  // Only an explicit true passes. An older payload that carries neither flag nor failures
-  // predates the gate and must not be exported on the strength of saying nothing.
-  const passed = flag === true && failures.length === 0;
-  if (!passed && failures.length === 0) {
-    failures.push(
-      'the estimate package carries no audit verdict; format_cbc_proposal must produce ' +
-      'auditPassed and auditFailures before a workbook can be written',
-    );
-  }
-  return { passed, failures };
+  // `costBasis` is a display string ("catalog_list_x_multiplier (Hager .29)"). The engine
+  // matches `cost_source` exactly, so prefer the explicit field and fall back to the first
+  // token of the display string rather than handing the engine a sentence.
+  const explicit = str(source.costSource).trim();
+  const basis = str(source.costBasis).trim();
+  const costSource = explicit || basis.split(/[\s(]/)[0] || '';
+
+  const components = Array.isArray(source.components)
+    ? source.components.map((raw) => {
+        const c = (raw ?? {}) as Record<string, unknown>;
+        return {
+          component: str(c.component),
+          ext_sale: c.extSale === undefined || c.extSale === null ? null : num(c.extSale),
+          exclusion: str(c.exclusion),
+          note: str(c.note),
+        };
+      })
+    : [];
+
+  return {
+    tag: str(source.tag),
+    description: str(source.description),
+    quantity: num(source.qty),
+    ext_sale: num(source.unitSale) * num(source.qty),
+    ext_cost: source.unitCost == null ? 0 : num(source.unitCost) * num(source.qty),
+    cost_source: costSource,
+    cost_source_detail: str(source.costSourceDetail) || basis,
+    quantity_source: str(source.quantitySource),
+    size_source: str(source.sizeSource),
+    hardware_group: str(source.hardwareGroup),
+    components,
+    assembly_accounted: source.assemblyAccounted === true,
+    specified_manufacturer: str(source.specifiedManufacturer),
+    manufacturer: str(source.manufacturer),
+    substitution_note: str(source.substitutionNotes),
+  };
+}
+
+function auditLineList(value: unknown): EngineAuditLine[] {
+  return Array.isArray(value) ? value.map(toAuditLine) : [];
+}
+
+/** The whole payload in the shape the engine audits. `state` has no default, by design. */
+export function toEngineAuditInput(raw: unknown): {
+  projectName: string;
+  state: string;
+  doorLines: EngineAuditLine[];
+  accessoryLines: EngineAuditLine[];
+  frpLines: EngineAuditLine[];
+  alternates: { name: string; description: string; lines: EngineAuditLine[] }[];
+} {
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const alternates = Array.isArray(source.alternates)
+    ? source.alternates.map((raw) => {
+        const a = (raw ?? {}) as Record<string, unknown>;
+        return {
+          name: str(a.name, 'Alternate'),
+          description: str(a.description),
+          lines: auditLineList(a.lines),
+        };
+      })
+    : [];
+
+  return {
+    projectName: str(source.projectName),
+    // The engine reads a two-letter state. `projectState` is written for a human
+    // ("PA (0.0% Sales Tax - Supply-Only)"), so take the leading code and let the engine
+    // fail the package when there is none - an unread state is a failure, not a 0% guess.
+    state: (str(source.projectState).trim().match(/^[A-Za-z]{2,}\b/)?.[0] ?? '').toUpperCase(),
+    doorLines: auditLineList(source.doorLines),
+    accessoryLines: auditLineList(source.accessoryLines),
+    frpLines: auditLineList(source.frpLines),
+    alternates,
+  };
 }
 
 export function coerceQuotation(raw: unknown, fallbackProjectName: string): QuotationData {

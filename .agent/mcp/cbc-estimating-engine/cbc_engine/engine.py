@@ -1058,10 +1058,21 @@ def format_cbc_proposal(
             sales_tax_rate = 0.000
 
     # --- Audit gate -------------------------------------------------------
+    audit_blocks = [("doors", door_lines),
+                    ("accessories", accessories_lines),
+                    ("frp", frp_lines or [])]
+
+    # Alternates go through the SAME checks as the base bid. They used to skip this loop
+    # entirely while still being summed and taxed below, so an alternate group could carry
+    # no cost_source, no quantity_source and an undisclosed substitution and still come
+    # back audit_passed: true. Alternates are the least CBC-confirmed part of the process
+    # (4.1 / FR-14 / Open Item 11) and were the least guarded part of the code.
+    for alt in (alternates_lines or []):
+        audit_blocks.append(
+            (f"alternate:{alt.get('name', 'Alternate')}", alt.get("lines") or []))
+
     audit_failures = []
-    for block, lines in (("doors", door_lines),
-                         ("accessories", accessories_lines),
-                         ("frp", frp_lines or [])):
+    for block, lines in audit_blocks:
         for i, line in enumerate(lines):
             label = line.get("tag") or line.get("description") or f"{block}[{i}]"
             src = line.get("cost_source", "")

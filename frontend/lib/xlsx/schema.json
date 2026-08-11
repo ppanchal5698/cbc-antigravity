@@ -146,6 +146,57 @@
           "type": "string",
           "description": "cost_source plus cost_source_detail, e.g. \"catalog_list_x_multiplier (Hager .29)\". One of: catalog_list_x_multiplier, p21_last_po, manual_wholesaler_net, vendor_rfq, custom_fabricator. A line with NO cost says why instead - not_carried, owner_supplied or excluded - and must then be 0.00; those three are not a way past the audit, and \"not carried\" is a claim about the shelf that has to be searched before it is made."
         },
+        "costSource": {
+          "type": "string",
+          "enum": [
+            "catalog_list_x_multiplier",
+            "p21_last_po",
+            "manual_wholesaler_net",
+            "vendor_rfq",
+            "custom_fabricator",
+            "not_carried",
+            "owner_supplied",
+            "excluded"
+          ],
+          "description": "The sourcing path on its own, unprefixed. The gateway re-runs format_cbc_proposal over these fields, so this must be the exact value you passed the engine - not a sentence about it."
+        },
+        "costSourceDetail": {
+          "type": "string",
+          "description": "The citation for the cost: \"Hager PB#18 p42, 0.29 mult, eff 2026-03-02\", \"P21 PO 88213, 2026-03-14\", \"Banner quote #12345\". For an uncosted line, which sections were searched and what the estimator does next."
+        },
+        "hardwareGroup": {
+          "type": ["string", "null"],
+          "description": "The plan's own hardware group callout for this opening, e.g. \"GROUP 1\". Set it whenever the line belongs to one; the audit then requires every component below to be priced or explicitly excluded."
+        },
+        "components": {
+          "type": "array",
+          "description": "Every component of the named hardware group, read from the plan's group schedule - NOT from expand_hardware_set, which returns a generic reference list. Each is either priced or carries an exclusion tag. A group whose components are not listed does not pass the audit.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": { "type": "string" },
+              "extSale": { "type": ["number", "null"] },
+              "exclusion": {
+                "type": ["string", "null"],
+                "description": "[not carried on shelf - outside RFQ required], [not indexed], manual_wholesaler_net, vendor_rfq, owner_supplied, by_others."
+              },
+              "note": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "assemblyAccounted": {
+          "type": ["boolean", "null"],
+          "description": "Set true once the door leaf and frame this description names are themselves priced or RFQ-tagged. A line reading \"HM/HMD Door, Hardware Group 1\" that only pays for its threshold is the single largest miss this audit exists to stop."
+        },
+        "specifiedManufacturer": {
+          "type": ["string", "null"],
+          "description": "The manufacturer the drawings specify, when they name one."
+        },
+        "manufacturer": {
+          "type": ["string", "null"],
+          "description": "The manufacturer actually quoted. When this differs from specifiedManufacturer the line is a substitution and substitutionNotes is required - reading NUDO off a schedule that specifies Marlite is a different product presented as the same."
+        },
         "citations": {
           "type": "string",
           "description": "Audit trail tags: [schedule] [spec] [note] [drawing] [catalog] [catalog-page] [not carried] [not indexed] [not stated]."
