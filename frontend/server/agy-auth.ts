@@ -67,7 +67,8 @@ async function readBrokerUrl(): Promise<string | null> {
   try {
     const raw = await readFile(join(BROKER_DIR, 'url'));
     const url = sanitizeOAuthUrl(raw.toString('utf8'));
-    return url || null;
+    if (!url || !isCompleteOAuthUrl(url)) return null;
+    return url;
   } catch {
     return null;
   }
@@ -90,6 +91,24 @@ export function sanitizeOAuthUrl(raw: string): string {
     return url.toString();
   } catch {
     return cleaned;
+  }
+}
+
+const REQUIRED_OAUTH_PARAMS = [
+  'client_id',
+  'response_type',
+  'redirect_uri',
+  'code_challenge',
+  'code_challenge_method',
+  'state',
+] as const;
+
+export function isCompleteOAuthUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return REQUIRED_OAUTH_PARAMS.every((key) => Boolean(parsed.searchParams.get(key)));
+  } catch {
+    return false;
   }
 }
 

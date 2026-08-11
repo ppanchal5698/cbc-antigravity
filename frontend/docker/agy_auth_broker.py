@@ -29,12 +29,21 @@ import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # CSI / OSC and other common ANSI sequences the TUI sprays around the URL.
+# OSC 8 hyperlinks are handled separately — they often hold the unbroken URL.
 _ANSI_RE = re.compile(
     rb"(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))"  # OSC
     rb"|(?:\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]))"  # CSI / Fe
 )
-_URL_START_RE = re.compile(
-    rb"https://accounts\.google\.com/o/oauth2/(?:v2/)?auth\?"
+_OSC8_URL_RE = re.compile(
+    rb"\x1b\]8;[^\x07\x1b]*;(https://accounts\.google\.com/o/oauth2/[^\x07\x1b]+)(?:\x07|\x1b\\)"
+)
+_REQUIRED_PARAMS = (
+    "client_id",
+    "response_type",
+    "redirect_uri",
+    "code_challenge",
+    "code_challenge_method",
+    "state",
 )
 
 
@@ -61,52 +70,71 @@ def sanitize_oauth_url(url: str) -> str:
         seen.add(key)
         params.append((key, value))
     return urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urlencode(params, safe=":/"), parts.fragment)
+        (parts.scheme, parts.netloc, parts.path, urlencode(params, doseq=False), parts.fragment)
     )
 
 
-def extract_oauth_url(buf: bytes) -> bytes | None:
-    """Return a clean Google OAuth URL from pty output, or None.
+def is_complete_oauth_url(url: str) -> bool:
+    """True only when Google would accept the authorize request."""
+    try:
+        query = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
+    except Exception:
+        return False
+    return all(query.get(key) for key in _REQUIRED_PARAMS)
 
-    Reconstructs the URL across TUI hard-wraps (newlines + padding spaces) and
-    ignores cursor-reset redraws that would otherwise duplicate query params.
+
+def extract_oauth_url(buf: bytes) -> bytes | None:
+    """Return a clean, complete Google OAuth URL from pty output, or None.
+
+    Prefers OSC 8 hyperlink targets (unwrapped). Falls back to joining the
+    hard-wrapped visible text. Never returns a truncated URL — wait for more
+    pty data instead (missing response_type is how Google 400s).
     """
-    text = strip_ansi(buf).replace(b"\r", b"\n")
-    m = _URL_START_RE.search(text)
+    for match in _OSC8_URL_RE.finditer(buf):
+        candidate = sanitize_oauth_url(match.group(1).decode("utf-8", errors="ignore"))
+        if is_complete_oauth_url(candidate):
+            return candidate.encode("utf-8")
+
+    text = strip_ansi(buf).replace(b"\r", b"\n").decode("utf-8", errors="ignore")
+    m = re.search(r"https://accounts\.google\.com/o/oauth2/(?:v2/)?auth\?", text)
     if not m:
         return None
 
-    # Take from the URL start through the next blank / box-drawing / prompt line.
-    tail = text[m.start() :].decode("utf-8", errors="ignore")
-    chunks: list[str] = []
-    for raw_line in tail.split("\n"):
-        line = raw_line.strip()
-        if not line:
-            if chunks:
-                break
-            continue
-        # Box borders / labels around the URL block.
-        if line.startswith(("─", "═", "┌", "└", "│")):
-            if chunks:
-                break
-            continue
-        if chunks and not re.match(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$", line):
-            break
-        # A second full URL means the TUI redrew; stop before duplicating.
-        if chunks and line.startswith("https://"):
-            break
-        chunks.append(line)
-        candidate = sanitize_oauth_url("".join(chunks))
-        # Enough to be useful: must include PKCE method once we have a full wrap set.
-        if "code_challenge_method=" in candidate and "state=" in candidate:
-            return candidate.encode("utf-8")
+    rest = text[m.start() :]
+    # Bound the region after the scheme so we don't end on the URL's own https.
+    skip = len("https://")
+    end = re.search(
+        r"\n\s*\n"
+        r"|\n\s*[─═\-]{5,}"
+        r"|\n\s*(?:Paste|Enter|Authorization code|Waiting)"
+        r"|\n\s*https://accounts\.google\.com/o/oauth2/",
+        rest[skip:],
+        flags=re.IGNORECASE,
+    )
+    region = rest[: skip + end.start()] if end else rest[:8000]
+    collapsed = re.sub(r"\s+", "", region)
 
-    if not chunks:
+    # Keep only URL-safe characters from the start; trim trailing TUI junk.
+    url_match = re.match(
+        r"(https://accounts\.google\.com/o/oauth2/(?:v2/)?auth\?[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+)",
+        collapsed,
+    )
+    if not url_match:
         return None
-    candidate = sanitize_oauth_url("".join(chunks))
-    if "accounts.google.com" in candidate and "code_challenge" in candidate:
-        return candidate.encode("utf-8")
-    return None
+
+    raw = url_match.group(1)
+    # If we captured trailing junk past state=, cut after the state value.
+    state_cut = re.search(
+        r"(https://accounts\.google\.com/o/oauth2/(?:v2/)?auth\?.*?[?&]state=[A-Za-z0-9_\-]+)",
+        raw,
+    )
+    if state_cut:
+        raw = state_cut.group(1)
+
+    candidate = sanitize_oauth_url(raw)
+    if not is_complete_oauth_url(candidate):
+        return None
+    return candidate.encode("utf-8")
 
 
 def capability_replies(data: bytes) -> bytes:
@@ -152,6 +180,8 @@ def main() -> None:
     pid, fd = pty.fork()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
+        os.environ["COLUMNS"] = "1000"
+        os.environ["LINES"] = "50"
         local_bin = os.path.expanduser("~/.local/bin")
         os.environ["PATH"] = local_bin + ":" + os.environ.get("PATH", "")
         # SSH env => agy uses file-based token storage, not the D-Bus keyring.
@@ -161,7 +191,7 @@ def main() -> None:
         os.execv(agy, [agy, "-i", prompt])
         os._exit(1)
 
-    # Wide pty so a ~400-char URL is never line-wrapped.
+    # Wide pty so a ~400-char URL is never line-wrapped (agy still may hard-wrap).
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 1000, 0, 0))
 
     buf = b""
