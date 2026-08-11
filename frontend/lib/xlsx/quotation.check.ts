@@ -16,6 +16,7 @@ import {
   SHEET_NAME,
   standardTerms,
   taxRateFromLabel,
+  resolveSalesTaxRate,
   type QuotationData,
 } from './quotation.ts';
 import { coerceQuotation, extractJson, toEngineAuditInput } from './coerce.ts';
@@ -177,11 +178,27 @@ async function main(): Promise<void> {
     'no percentage means fall back to the given amount, never to zero');
   assert.equal(taxRateFromLabel('Sales Tax (900%):'), null, 'nonsense rate is not a rate');
 
-  const taxed = buildQuotationWorkbook({ ...sample, salesTaxLabel: 'Ohio Sales Tax (8.0%):' });
+  // Engine rate wins over a disagreeing label (the residual BUG-04 hole).
+  assert.equal(
+    resolveSalesTaxRate({ salesTaxLabel: 'Ohio Sales Tax (8.0%):', salesTaxRate: 0.065 }),
+    0.065,
+  );
+  assert.equal(
+    resolveSalesTaxRate({ salesTaxLabel: 'Ohio Sales Tax (8.0%):', salesTaxRate: null }),
+    0.08,
+    'older drafts without salesTaxRate still parse the label',
+  );
+
+  const taxed = buildQuotationWorkbook({
+    ...sample,
+    salesTaxLabel: 'Mislabelled Sales Tax (99.0%):',
+    salesTaxRate: 0.08,
+  });
   const taxWs = taxed.getWorksheet('CBC Material Quotation')!;
   let taxRow = 0;
   taxWs.eachRow((r, n) => {
-    if (String(r.getCell(6).value ?? '').startsWith('Ohio Sales Tax')) taxRow = n;
+    // Exact label — terms also contain the words "Sales Tax".
+    if (String(r.getCell(6).value ?? '') === 'Mislabelled Sales Tax (99.0%):') taxRow = n;
   });
   assert.ok(taxRow > 0, 'no sales tax row rendered');
   const taxValue = taxWs.getCell(taxRow, 7).value;

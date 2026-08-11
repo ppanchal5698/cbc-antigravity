@@ -735,6 +735,10 @@ def _clear_catalog(con, path, cid):
     The id is derived from the stamp, so an edited file or a parser-version bump mints a
     new one and would otherwise leave the old rows orphaned in the database - where they
     still answer queries, with stale prices.
+
+    Also drops the process-local normalized-text cache: a `force=True` rebuild keeps the
+    same catalog_id (path+mtime unchanged), and verify_facts would otherwise keep answering
+    from the pre-rebuild snapshot — the same hole BPI closed for vision rewrites.
     """
     for (old,) in con.execute(
             "SELECT catalog_id FROM catalogs WHERE path=? AND catalog_id!=?",
@@ -742,8 +746,10 @@ def _clear_catalog(con, path, cid):
         for t in ("catalogs", "pages", "products", "item_numbers", "page_text",
                   "crossovers"):
             con.execute(f"DELETE FROM {t} WHERE catalog_id=?", (old,))
+        invalidate_norm_cache(old)
     for t in ("pages", "products", "item_numbers", "page_text", "crossovers"):
         con.execute(f"DELETE FROM {t} WHERE catalog_id=?", (cid,))
+    invalidate_norm_cache(cid)
 
 
 def index_workbook(path, con, cid, stamp):
@@ -899,14 +905,19 @@ def norm(s):
 # Normalized page bodies, keyed by catalog_id. verify_facts is documented as the thing
 # to run before reporting ANY model number or price, so it is the hottest tool here, and
 # it used to re-normalize the whole book - two regex passes over every page - on every
-# call. Caching needs no invalidation hook: catalog_id is a hash of path + mtime +
-# PARSER_VERSION, so a re-indexed book is simply a different key.
+# call. catalog_id hashes path+mtime+PARSER_VERSION, so a changed file is a new key —
+# but force=True rebuilds keep the same id, so `_clear_catalog` must invalidate.
 #
 # NOT narrowed through FTS: verify_facts matches substrings, while FTS matches whole
 # tokens, so an FTS prefilter drops real hits ("US26" inside "US26D", "Collar" inside
 # "Collars"). The scan stays exhaustive; only the normalization is cached.
 _NORM_CACHE = {}
 _NORM_CACHE_MAX = 3
+
+
+def invalidate_norm_cache(catalog_id):
+    """Drop a catalog's normalized text after its page_text rows are rewritten."""
+    _NORM_CACHE.pop(catalog_id, None)
 
 
 def normalized_pages(con, catalog_id):

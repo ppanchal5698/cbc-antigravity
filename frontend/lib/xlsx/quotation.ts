@@ -53,6 +53,11 @@ export type QuotationData = {
   frpLines: QuotationLine[];
   salesTaxLabel: string;
   salesTaxAmount: number;
+  /**
+   * Decimal rate from the estimating engine (e.g. 0.08). Preferred over parsing
+   * `salesTaxLabel` — a mislabelled percentage must not silently become the quoted rate.
+   */
+  salesTaxRate?: number | null;
   freightNote: string;
   terms: string[];
   rfis: string[];
@@ -349,9 +354,9 @@ export function buildQuotationWorkbook(data: QuotationData): ExcelJS.Workbook {
   const taxCell = ws.getCell(row, 7);
   // Live formula over the base subtotal, not the model's arithmetic. An estimator who
   // edits a unit price on the review screen expects the tax to follow; a literal silently
-  // keeps quoting the old basis. Falls back to the supplied amount when the label carries
-  // no rate to key off (exempt lines, or a note in place of a percentage).
-  const taxRate = taxRateFromLabel(data.salesTaxLabel);
+  // keeps quoting the old basis. Rate comes from the engine field first; label parse is
+  // only a fallback for drafts persisted before salesTaxRate was stored.
+  const taxRate = resolveSalesTaxRate(data);
   taxCell.value = taxRate === null
     ? data.salesTaxAmount
     : { formula: `ROUND(G${baseRow}*${taxRate},2)` };
@@ -415,6 +420,17 @@ export function taxRateFromLabel(label: string): number | null {
   const pct = Number(m[1]);
   if (!Number.isFinite(pct) || pct < 0 || pct > 25) return null;
   return pct / 100;
+}
+
+/** Prefer the engine rate; fall back to the label only for older drafts. */
+export function resolveSalesTaxRate(
+  data: Pick<QuotationData, 'salesTaxLabel' | 'salesTaxRate'>,
+): number | null {
+  const rate = data.salesTaxRate;
+  if (typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 0.25) {
+    return rate;
+  }
+  return taxRateFromLabel(data.salesTaxLabel);
 }
 
 /** CBC's standard terms. Tax line is the only one that varies by state. */

@@ -254,6 +254,9 @@ export function coerceQuotation(raw: unknown, fallbackProjectName: string): Quot
   const source = raw as Record<string, unknown>;
   const salesTaxLabel = str(source.salesTaxLabel, 'Sales Tax (0.0%):');
   const terms = strList(source.terms);
+  const rawRate = source.salesTaxRate;
+  const salesTaxRate =
+    typeof rawRate === 'number' && Number.isFinite(rawRate) ? rawRate : null;
 
   return {
     projectName: str(source.projectName, fallbackProjectName),
@@ -269,6 +272,7 @@ export function coerceQuotation(raw: unknown, fallbackProjectName: string): Quot
     frpLines: lineList(source.frpLines),
     salesTaxLabel,
     salesTaxAmount: num(source.salesTaxAmount),
+    salesTaxRate,
     freightNote: str(source.freightNote, 'TBD (Excluded)'),
     terms: terms.length ? terms : standardTerms(salesTaxLabel.replace(/:$/, '')),
     rfis: strList(source.rfis),

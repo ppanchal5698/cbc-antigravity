@@ -30,6 +30,8 @@ export type QuoteDraftHeader = {
   phoneFax: string;
   salesTaxLabel: string;
   salesTaxAmount: number;
+  /** Engine decimal rate when known; older drafts may omit it. */
+  salesTaxRate?: number | null;
   freightNote: string;
   terms: string[];
   rfis: string[];
@@ -84,6 +86,7 @@ function headerFromQuotation(q: QuotationData): QuoteDraftHeader {
     phoneFax: q.phoneFax,
     salesTaxLabel: q.salesTaxLabel,
     salesTaxAmount: q.salesTaxAmount,
+    salesTaxRate: q.salesTaxRate ?? null,
     freightNote: q.freightNote,
     terms: q.terms,
     rfis: q.rfis,
@@ -256,6 +259,7 @@ export function quotationFromDraft(
     frpLines: by('frp'),
     salesTaxLabel: header.salesTaxLabel,
     salesTaxAmount: header.salesTaxAmount,
+    salesTaxRate: header.salesTaxRate ?? null,
     freightNote: header.freightNote,
     terms: header.terms,
     rfis: header.rfis,

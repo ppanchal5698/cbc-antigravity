@@ -57,6 +57,14 @@ def test_price_is_not_read_across_a_model_boundary():
     than the missing row it was meant to fix."""
     assert ix.PRICE_ANY.findall("B-68616.99") == []
     assert ix.PRICE_ANY.findall("B-826.18") == []
+
+
+def test_norm_cache_invalidates_on_clear():
+    """force=True re-index keeps the same catalog_id; the cache must not keep answering."""
+    cid = "deadbeefcafef00d"
+    ix._NORM_CACHE[cid] = [(1, "sec", "STALE")]
+    ix.invalidate_norm_cache(cid)
+    assert cid not in ix._NORM_CACHE
     assert ix.PRICE_ANY.findall("10-0390-6-1A-41") == []
     # A real price on the same line is still found.
     assert "126.75" in ix.PRICE_ANY.findall("B-826 | Starter Kit | 0.38 | 5.90 126.75")

@@ -13,7 +13,7 @@
  */
 import PDFDocument from 'pdfkit';
 import type { QuotationData, QuotationLine } from '../xlsx/quotation.ts';
-import { taxRateFromLabel } from '../xlsx/quotation.ts';
+import { resolveSalesTaxRate } from '../xlsx/quotation.ts';
 
 const NAVY = '#1A365D';
 const HEADER_BLUE = '#2B6CB0';
@@ -174,9 +174,9 @@ export function buildQuotationPdf(data: QuotationData): Promise<Buffer> {
 
   // --- summary -------------------------------------------------------------
   const base = Math.round((doors + acc + frp) * 100) / 100;
-  // The label carries the engine-derived rate (the worker writes it). Falling back to the
-  // stored amount rather than recomputing keeps one source of truth for the tax.
-  const rate = taxRateFromLabel(data.salesTaxLabel);
+  // Engine rate first (worker / draft header). Label parse is only a fallback for older
+  // drafts. Falling back to the stored amount when no rate is known keeps one truth.
+  const rate = resolveSalesTaxRate(data);
   const tax = rate === null ? data.salesTaxAmount : Math.round(base * rate * 100) / 100;
 
   const summaryRow = (label: string, value: string, bold = false) => {

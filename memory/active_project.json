@@ -2,7 +2,7 @@
   "project_name": "Baldwin PA Revision 4",
   "plan_pdf_path": "plans/Full Set 25-073 Baldwin PA Revision 4 set 4-14-26.pdf",
   "plan_doc_id": "51d90d3aff019e82",
-  "phase_completed": 6,
+  "phase_completed": 5,
   "mode": "one-off",
   "client_account": "Standard Commercial",
   "initiator": "Estimator",
@@ -65,6 +65,6 @@
     "sales_tax": 0.0,
     "grand_total": 6736.31
   },
-  "last_updated": "2026-08-07T15:47:00Z",
-  "_next": "Completed Phase 6 - Draft Proposal Delivered for Estimator Review."
+  "last_updated": "2026-08-12T01:00:00Z",
+  "_next": "Seed demo data through Phase 5 (judgment / RFIs). Phase 6 deliver is not claimed — memory/prior_quotes has no archived quote and OKF learning_cycles is 0."
 }

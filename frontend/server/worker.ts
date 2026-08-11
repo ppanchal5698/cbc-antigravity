@@ -176,10 +176,10 @@ async function processRun(run: ClaimedRun): Promise<void> {
     }
 
     const quotation = coerceQuotation(payload, run.project_name);
-    // Tax from the engine's state rule, never from the model's label. `salesTaxLabel` is
-    // free text and `quotation.ts` parses a rate back out of it to drive the worksheet
-    // formula, so a mislabelled rate silently became the quoted one.
+    // Tax from the engine's state rule, never from the model's label. Persist the decimal
+    // rate explicitly so workbook/PDF rebuilds do not re-parse free text.
     quotation.salesTaxAmount = verdict.salesTaxAmount;
+    quotation.salesTaxRate = verdict.salesTaxRate;
     quotation.salesTaxLabel = `${verdict.state} Sales Tax (${(verdict.salesTaxRate * 100).toFixed(1)}%):`;
     const outputPath = join(run.folder_path, `CBC_Material_Quotation_${run.slug}.xlsx`);
     await persistQuotationDraft(run.id, run.project_id, quotation);
