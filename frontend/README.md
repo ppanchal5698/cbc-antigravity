@@ -61,6 +61,32 @@ The host CBC workspace is mounted **read-only**. `/workspace` is a named volume
 seeded from it, so the container can rewrite `.agent/mcp_config.json` to Linux
 paths without disturbing the Windows paths your Antigravity IDE still uses.
 
+### Exposure
+
+**Nothing in this stack authenticates.** Every published port binds to
+`127.0.0.1` by default, and that is doing real work, not tidying:
+
+- The UI has **no login**. Whoever reaches `:3000` can approve a draft quote,
+  download a workbook, delete chat history and queue estimates.
+- `POST :8787/chat` spawns `agy` with `--dangerously-skip-permissions`, holding
+  the gateway's environment, read-write on the whole workspace, for up to
+  `AGY_TIMEOUT`. `POST :8787/auth/logout` deletes the OAuth token.
+- The domain gate in front of chat is a **scope classifier**, not an access
+  control. It decides whether a message is CBC estimating work — not whether the
+  sender is entitled to ask.
+- `POSTGRES_PASSWORD` is required. It used to default to `cbc`, which put a known
+  password on a published port.
+
+`BIND_ADDR` overrides the interface. Set it to `0.0.0.0` **only** behind
+something that authenticates — a reverse proxy with SSO, or a network you
+already trust that far. Estimators working from other machines need one of
+those, not a wider bind.
+
+This is the open half of NFR-4 (*"drawings, pricing and customer data remain in
+an approved, access-controlled environment"*), which `docs/requirements.md`
+records as still needing a named owner. Loopback is the safe default until that
+answer exists; it is not the answer.
+
 Scale the workers with `docker compose up -d --scale agent=3`; runs are claimed
 with `FOR UPDATE SKIP LOCKED`, so replicas need no coordination.
 
@@ -106,8 +132,12 @@ Useful for working on the UI. Needs Postgres and a host `agy`.
 docker compose up -d db
 ```
 
+`node` does not read `.env`, so the gateway needs `DATABASE_URL` in its own
+environment — and it must name the port compose actually publishes (`5433`, not
+`5432`) and the password you set in `.env`:
+
 ```bash
-AGY_BIN="$LOCALAPPDATA/agy/bin/agy.exe" WORKSPACE_ROOT="$(cd .. && pwd)" npm run gateway
+DATABASE_URL="postgres://cbc:$POSTGRES_PASSWORD@localhost:5433/cbc" AGY_BIN="$LOCALAPPDATA/agy/bin/agy.exe" WORKSPACE_ROOT="$(cd .. && pwd)" npm run gateway
 ```
 
 ```bash

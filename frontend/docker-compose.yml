@@ -6,11 +6,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cbc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cbc}
+      # No default. This used to fall back to `cbc`, which shipped a known
+      # password on a published port; compose now refuses to start without one.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - there is no default}
       POSTGRES_DB: ${POSTGRES_DB:-cbc}
     ports:
       # 5432 on the host is usually taken by a native PostgreSQL install.
-      - "${DB_HOST_PORT:-5433}:5432"
+      - "${BIND_ADDR:-127.0.0.1}:${DB_HOST_PORT:-5433}:5432"
     volumes:
       # PostgreSQL 18+ images want the mount one level up, at
       # /var/lib/postgresql, so data lands in a version-named subdirectory.
@@ -32,7 +34,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:-cbc}@db:5432/${POSTGRES_DB:-cbc}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - there is no default}@db:5432/${POSTGRES_DB:-cbc}
       WORKSPACE_ROOT: /workspace
       SEED_ROOT: /seed
       AGY_BIN: agy
@@ -65,7 +67,13 @@ services:
       # agy's OAuth credentials and keyring; survives restarts after one login.
       - agy-home:/root
     ports:
-      - "${AGENT_HOST_PORT:-8787}:8787"
+      # Loopback by default. POST /chat on this port spawns agy with
+      # --dangerously-skip-permissions, read-write on the whole workspace, and
+      # nothing here authenticates - the domain gate is a SCOPE classifier, not
+      # an access control. Published on 0.0.0.0 it handed agent execution to
+      # anyone on the network. See "Exposure" in README.md before changing
+      # BIND_ADDR.
+      - "${BIND_ADDR:-127.0.0.1}:${AGENT_HOST_PORT:-8787}:8787"
 
   web:
     build:
@@ -76,7 +84,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:-cbc}@db:5432/${POSTGRES_DB:-cbc}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - there is no default}@db:5432/${POSTGRES_DB:-cbc}
       AGENT_URL: http://agent:8787
       WORKSPACE_ROOT: /workspace
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
@@ -84,7 +92,9 @@ services:
       # Uploads are written straight into the project folder the agent reads.
       - workspace:/workspace
     ports:
-      - "${WEB_HOST_PORT:-3000}:3000"
+      # Loopback by default, like the agent. The UI has no login: whoever reaches
+      # it can approve a draft, download a quote and start an estimate.
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_HOST_PORT:-3000}:3000"
 
   # Periodic snapshot of the workspace volume. The agent writes into the
   # workspace, so this is the undo button for a bad run.
