@@ -11,10 +11,17 @@
  * a rejection; a validator that throws is a rejection. The failure mode is "no estimate
  * ran", never "anyone may run estimates".
  *
- * NOTE ON THE MESSAGE BODY: nothing in here, and nothing downstream, feeds mail text to
- * the agent. The subject becomes a sanitised project NAME and that is all. Prose written
+ * NOTE ON THE MESSAGE BODY: the body never reaches the agent, and must not. Prose written
  * by a stranger reaching a prompt that spawns a skip-permissions agent is remote code
  * execution with extra steps.
+ *
+ * The SUBJECT is a different matter, and this comment used to overstate it. It becomes the
+ * project name (`projectNameFromSubject`), and the project name IS interpolated into the
+ * estimate prompt in `worker.ts`. Control characters are stripped so it cannot forge extra
+ * lines, and it is capped at 100 characters, and the sender is allowlisted with SPF and
+ * DKIM both passing - but it is attacker-influenced text inside a prompt, so the worker
+ * fences it in a `<project-name>` block and tells the agent it is data. If you add another
+ * consumer of the project name, fence it there too.
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';

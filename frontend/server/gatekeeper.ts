@@ -65,7 +65,21 @@ export const DOMAIN_SIGNALS: RegExp[] = [
   // CSI sections and divisions CBC covers.
   /\b(08 ?71 ?00|08 ?71 ?13|08 ?91 ?00|10 ?28 ?00|10 ?28 ?13|10 ?21 ?13|10 ?51 ?00|10 ?44 ?00|06 ?64 ?00|division ?(?:06|08|10)|div ?(?:06|08|10)|csi)\b/i,
   // The estimating and plan-reading vocabulary.
-  /\b(throat depth|hardware set|door schedule|frame|hollow metal|wood door|lite|louver|threshold|gasketing|weatherstrip|finish code|washroom accessor|hand dryer|grab bar|partition|frp|vinyl moulding|takeoff|take-?off|quote line|price book|price list|price rows?|catalog(?:ue)?s?|the shelf|vendors?|coverage|text_only|multiplier|margin band|list price|net (?:price|cost)|price_basis|already_net|sales tax|proposal|submittal|rfi|rfq|bid set|plan set|keynote|spec section|cross-?reference|estimat|crossover|price override)\b/i,
+  //
+  // The trailing `(?:e?s)?` is load-bearing. The group's own `\b` sits immediately after
+  // the last literal, so every noun here used to miss its own plural: `hardware set` did
+  // not match "hardware sets", `frame` did not match "frames", `grab bar` did not match
+  // "grab bars". Those messages carried no deterministic signal at all and fell through
+  // to a full classifier spawn that fails closed on a timeout.
+  //
+  // `opening` and the exclusion words are here because Phase 2's exit gate REQUIRES
+  // declaring out-of-scope trades, and asking about one used to be refused outright.
+  /\b(throat depth|hardware set|door schedule|frame|hollow metal|wood door|lite|louver|threshold|gasketing|weatherstrip|finish code|hand dryer|grab bar|partition|frp|vinyl moulding|quote line|price book|price list|price row|catalog(?:ue)?|the shelf|vendor|coverage|text_only|multiplier|margin band|list price|net (?:price|cost)|price_basis|already_net|sales tax|proposal|submittal|rfi|rfq|bid set|plan set|keynote|spec section|cross-?reference|crossover|price override|opening)(?:e?s)?\b/i,
+  // Stems, matched as prefixes on purpose. These were written as stems but anchored with
+  // `\b`, which meant they matched ONLY the bare stem - `estimat` matched "estimat" and
+  // never "estimate", "estimating" or "estimator", and `washroom accessor` never matched
+  // "washroom accessories". Both entries were dead for every word anyone actually types.
+  /\b(estimat|washroom accessor|take[ -]?off|exclud|exclusion)\w*/i,
   // This workspace's own parts.
   /\b(building-plan-intelligence|catalog-intelligence|cbc-estimating-engine|okf|knowledge graph|mcp server|open_plan_set|read_schedule|verify_facts|list_catalogs|list_division|lookup_product|match_materials|lookup_crossover|calculate_quote_line|lookup_vendor_multiplier|get_margin_band|convert_finish_code|calculate_frame_throat|expand_hardware_set|format_cbc_proposal|check_cost_freshness|run-?estimate|quote desk|this workspace|the copilot|sandbox script|corrections\.jsonl|graph\.json|price_overrides|phase gate|quality gate)\b/i,
   // The citation and gap tags. Bracketed, so no word boundary to anchor on.
@@ -77,16 +91,35 @@ export const DOMAIN_SIGNALS: RegExp[] = [
 export type Screen = 'allow' | 'refuse' | 'unknown';
 
 /**
+ * The one deny rule an in-domain signal is allowed to override.
+ *
+ * The other three name things this workspace does not do at all. This one names trades
+ * that appear ON CBC's own drawings and have to be discussed to be excluded.
+ */
+const TRADE_RULE = 'trade outside CBC';
+
+/**
  * The free, deterministic half. Deny runs before allow on purpose: "write a python script
  * to scrape Hager prices" names a real vendor and is still general software work.
+ *
+ * The exception is `trade outside CBC`. Deny-first meant "What throat depth for a masonry
+ * CMU wall?" was refused - though 5-3/4" masonry/CMU is one of the five standard throats
+ * and `calculate_frame_throat` has a branch for it - and so was every question about the
+ * exclusions Phase 2's exit gate requires be declared. An estimator asking core Division
+ * 08 work got the domain refusal, recorded in the transcript as an assistant turn.
+ *
+ * So an in-domain signal vetoes that rule and only that rule. `continue` rather than
+ * `break`: a message can trip a later rule too, and skipping the rest of the list to
+ * honour one veto would let "the capital of France, for a masonry job" through.
  */
 export function screen(message: string): { verdict: Screen; reason: string } {
+  const inDomain = DOMAIN_SIGNALS.some((re) => re.test(message));
   for (const rule of HARD_DENY) {
-    if (rule.re.test(message)) return { verdict: 'refuse', reason: rule.name };
+    if (!rule.re.test(message)) continue;
+    if (rule.name === TRADE_RULE && inDomain) continue;
+    return { verdict: 'refuse', reason: rule.name };
   }
-  for (const re of DOMAIN_SIGNALS) {
-    if (re.test(message)) return { verdict: 'allow', reason: 'CBC domain signal' };
-  }
+  if (inDomain) return { verdict: 'allow', reason: 'CBC domain signal' };
   return { verdict: 'unknown', reason: 'no deterministic signal' };
 }
 

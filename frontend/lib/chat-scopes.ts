@@ -117,13 +117,33 @@ const GROUNDING = [
   '  servers, in any language, even when it is asked for as an example or a snippet.',
 ].join('\n');
 
+/**
+ * A label from the request body, made safe to sit inside the contract.
+ *
+ * `context` is client-supplied, and on the project surface `projectName` traces back to an
+ * email subject on the mail intake path. These are labels: they name which project or
+ * vendor the chat is about, and nothing in them should ever read as an instruction. Strip
+ * the control characters that would let one forge extra contract lines, cap the length,
+ * and drop the angle brackets that would let one close a fence early.
+ */
+function label(value: string | undefined, fallback: string): string {
+  const cleaned = (value ?? '')
+    .replace(/[\u0000-\u001f\u007f<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
+}
+
 function scopeBody(scope: ChatScopeId, context: ChatContext): string {
   switch (scope) {
     case 'project': {
-      const name = context.projectName || 'this project';
+      const name = label(context.projectName, 'this project');
       return [
         `You are answering questions about ONE bid set: "${name}".`,
-        context.projectFolder ? `Its files are under \`${context.projectFolder}\`.` : '',
+        context.projectFolder
+          ? `Its files are under \`${label(context.projectFolder, '')}\`.`
+          : '',
         '',
         'Use building-plan-intelligence for anything about the drawings: open_plan_set,',
         'list_sheets, read_schedule for any table, read_layout for notes, and verify_facts',
@@ -150,9 +170,9 @@ function scopeBody(scope: ChatScopeId, context: ChatContext): string {
         'Do not read drawings or price a project here.',
       ].join('\n');
     case 'vendor': {
-      const folder = context.vendorFolder || 'this vendor';
+      const folder = label(context.vendorFolder, 'this vendor');
       const books = context.vendorBooks?.length
-        ? `\nTheir books: ${context.vendorBooks.map((b) => `\`${b}\``).join(', ')}.`
+        ? `\nTheir books: ${context.vendorBooks.map((b) => `\`${label(b, '?')}\``).join(', ')}.`
         : '';
       return [
         `You are answering questions about ONE vendor: "${folder}".${books}`,
