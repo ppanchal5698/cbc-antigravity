@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -167,6 +169,51 @@ class OKFKnowledgeGraph:
                     problems.append(
                         f"edge {edge.get('type')}: target {edge['target']!r} does not exist")
         return problems
+
+    # How long to wait for another process to finish its read-modify-write, and how old a
+    # lock has to be before it is assumed to belong to something that crashed.
+    LOCK_TIMEOUT_S = 10.0
+
+    @contextmanager
+    def _exclusive(self):
+        """Serialize a whole read-modify-write across processes.
+
+        `save()` rewrites the entire file from this instance's in-memory snapshot, and
+        `graph()` is a process-level singleton loaded once. With WORKER_CONCURRENCY at its
+        default of 2 there are two engine servers, so two estimates finishing near each
+        other each wrote their own whole graph and the second silently discarded the
+        first's learning. The write itself was always atomic; what was lost was the other
+        process's edit, which atomicity does nothing about.
+
+        `O_CREAT | O_EXCL` is the portable atomic test-and-set - stdlib has no
+        cross-platform advisory lock. A lock older than the timeout is treated as
+        abandoned: learning must not be wedged forever by a process that died holding it.
+        """
+        lock = self.graph_path.with_suffix(".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.LOCK_TIMEOUT_S
+        fd = None
+        while fd is None:
+            try:
+                fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    stale = time.time() - lock.stat().st_mtime > self.LOCK_TIMEOUT_S
+                except OSError:
+                    stale = False          # it vanished; just retry
+                if stale:
+                    lock.unlink(missing_ok=True)
+                    continue
+                if time.monotonic() > deadline:
+                    raise TimeoutError(
+                        f"another process has held {lock} for over "
+                        f"{self.LOCK_TIMEOUT_S}s; graph not updated")
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            os.close(fd)
+            lock.unlink(missing_ok=True)
 
     def save(self, target_path: Optional[Path] = None) -> None:
         """Serialize back to disk, atomically."""
@@ -426,6 +473,13 @@ class OKFKnowledgeGraph:
 
     def learn_from_quote(self, quote_data: dict, brand: str = "") -> Dict[str, Any]:
         """Reinforce the patterns a finished quote actually used."""
+        with self._exclusive():
+            # Reload inside the lock: this instance may have been sitting in a long-lived
+            # server process since before another run learned something.
+            self.load()
+            return self._learn_from_quote(quote_data, brand)
+
+    def _learn_from_quote(self, quote_data: dict, brand: str = "") -> Dict[str, Any]:
         brand_id = f"brand:{_norm_id(brand)}" if brand else "brand:standard_commercial"
         if brand_id not in self.nodes:
             return {"status": "ignored",
@@ -473,6 +527,11 @@ class OKFKnowledgeGraph:
         substitution. A finish or quantity correction is not a substitution, and recording
         one as such taught the graph a substitution that nobody approved.
         """
+        with self._exclusive():
+            self.load()
+            return self._learn_from_correction(correction_record)
+
+    def _learn_from_correction(self, correction_record: dict) -> Dict[str, Any]:
         specified = (correction_record.get("specified_callout") or "").strip()
         override = (correction_record.get("estimator_override") or "").strip()
         if not specified or not override:

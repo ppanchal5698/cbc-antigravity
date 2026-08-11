@@ -2,6 +2,7 @@
  * Persistable FR-9 quote drafts. The workbook is regenerated from these rows.
  */
 import { query, withTransaction } from './db.ts';
+import { recordCorrection } from './corrections.ts';
 import {
   type LineConfidence,
   type PriceFreshness,
@@ -394,7 +395,35 @@ export async function patchQuoteLine(
 
   await query(`UPDATE quote_drafts SET updated_at = now() WHERE id = $1`, [row.draft_id]);
   const line = updated[0];
-  return line ? { ok: true, value: line } : { ok: false, reason: 'not_found' };
+  if (!line) return { ok: false, reason: 'not_found' };
+
+  // An estimator changing what a line IS is the signal the graph learns from, and this is
+  // the only place in the app where that happens. Phase 5 and the OKF rules both describe
+  // the override being appended to corrections.jsonl and ingested; neither ran, so the
+  // graph had learned nothing since the file was seeded.
+  //
+  // After the UPDATE, never before: a correction recorded for an edit that then failed to
+  // commit would teach the graph something that never happened. And awaited rather than
+  // fired-and-forgotten so the failure is logged, not swallowed.
+  await recordCorrection(
+    { tag: row.tag, description: row.description, section: row.section },
+    { description: patch.description, substitution_notes: next.substitution_notes },
+    await projectOf(row.draft_id),
+  ).catch((err: unknown) => {
+    console.error('[corrections]', err instanceof Error ? err.message : err);
+    return null;
+  });
+
+  return { ok: true, value: line };
+}
+
+/** The project a draft belongs to, for the correction record's `project` field. */
+async function projectOf(draftId: string): Promise<string> {
+  const rows = await query<{ name: string }>(
+    `SELECT p.name FROM quote_drafts d JOIN projects p ON p.id = d.project_id WHERE d.id = $1`,
+    [draftId],
+  ).catch(() => []);
+  return rows[0]?.name ?? 'unknown';
 }
 
 export async function addQuoteLine(

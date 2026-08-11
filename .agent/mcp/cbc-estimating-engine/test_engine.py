@@ -807,6 +807,28 @@ class TestDutchBrosUnderScoping(unittest.TestCase):
         self.assertTrue(any("substitution_note" in f["problem"]
                             for f in res["audit_failures"]))
 
+    def test_allegion_brands_route_to_the_wholesaler_not_an_rfq(self):
+        """A drawing writes "LCN 4040XP", never "Banner Solutions". Looking the line up by
+        the name on the schedule fell through to VENDOR_RFQ_REQUIRED - step 4 of the cost
+        sourcing order - when every rule says these are step 2, manual wholesaler net."""
+        for written in ("Von Duprin 99EO", "LCN 4040XP", "SCHLAGE", "Ives FS43",
+                        "Allegion", "von duprin"):
+            with self.subTest(vendor=written):
+                res = engine.lookup_vendor_multiplier(written)
+                self.assertEqual(res["action_required"], "MANUAL_PRICE_ENTRY", res)
+                self.assertEqual(res["sourcing_type"], "wholesaler")
+                self.assertIsNone(res["multiplier"], "a wholesaler line has no multiplier")
+                self.assertIn("Banner Solutions", res["preferred_wholesalers"])
+                self.assertIn("SecLock", res["preferred_wholesalers"])
+
+    def test_wholesaler_brand_match_is_whole_words(self):
+        """"IVES" must not match inside another word, and a genuinely unknown vendor still
+        has to reach the RFQ path rather than being routed somewhere convenient."""
+        for unknown in ("Knives Unlimited", "Marlite", "Cal-Royal", "Zero International"):
+            with self.subTest(vendor=unknown):
+                res = engine.lookup_vendor_multiplier(unknown)
+                self.assertEqual(res["action_required"], "VENDOR_RFQ_REQUIRED", res)
+
     def test_alternate_lines_are_audited_like_the_base_bid(self):
         """Alternates were summed and taxed while skipping the audit loop entirely, so an
         unsourced line passed inside an alternate and failed in the base bid."""

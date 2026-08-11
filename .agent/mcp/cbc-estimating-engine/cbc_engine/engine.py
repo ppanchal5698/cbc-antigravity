@@ -412,6 +412,27 @@ def _resolve_vendor_key(vendor: str) -> Optional[str]:
     return None
 
 
+# Manufacturers CBC does not buy direct. The line comes through a wholesaler and the cost
+# is a manual estimator entry - step 2 of the sourcing order (requirements 6.2 / FR-6),
+# not step 4.
+#
+# These are keyed on the manufacturer because that is what a drawing writes. A hardware
+# schedule says "LCN 4040XP"; it never says "Banner Solutions". Without them
+# lookup_vendor_multiplier fell through to VENDOR_RFQ_REQUIRED for every Allegion line on
+# the set, which sends the estimator down the wrong path and puts the wrong status on the
+# line. The wholesaler tiers themselves already exist in VENDOR_TIERS - what was missing
+# was any way to reach them from the name on the drawing.
+WHOLESALER_LINES = {
+    "VON DUPRIN": "Allegion",
+    "LCN": "Allegion",
+    "SCHLAGE": "Allegion",
+    "IVES": "Allegion",
+    "ALLEGION": "Allegion",
+}
+
+ALLEGION_WHOLESALERS = ("Banner Solutions", "SecLock")
+
+
 def lookup_vendor_multiplier(vendor: str) -> Dict[str, Any]:
     """Lookup CBC vendor multiplier tier, effective dates, and sourcing rules."""
     key = _resolve_vendor_key(vendor)
@@ -422,6 +443,33 @@ def lookup_vendor_multiplier(vendor: str) -> Dict[str, Any]:
         if data["sourcing_type"] == "wholesaler":
             result["action_required"] = "MANUAL_PRICE_ENTRY"
         return result
+
+    # Whole words only, same rule as _resolve_vendor_key: "IVES" must not match "KNIVES".
+    words = set(" ".join(vendor.strip().upper().replace("-", " ").split()).split())
+    for brand, parent in WHOLESALER_LINES.items():
+        if set(brand.split()) <= words:
+            return {
+                "matched_vendor": brand,
+                "input_vendor": vendor,
+                "vendor_name": f"{brand.title()} ({parent})",
+                "multiplier": None,
+                "basis": "net",
+                "effective_date": "Manual Quote",
+                "notes": (
+                    f"{parent} line. CBC does not buy it direct - it comes through a "
+                    "wholesaler, so there is no list price and no multiplier to apply. "
+                    "This is the wholesaler-net path, not a vendor RFQ."
+                ),
+                "sourcing_type": "wholesaler",
+                "action_required": "MANUAL_PRICE_ENTRY",
+                "preferred_wholesalers": list(ALLEGION_WHOLESALERS),
+                "manual_entry_prompt": (
+                    f"Line requires a net cost for a {brand.title()} product from "
+                    f"{' or '.join(ALLEGION_WHOLESALERS)}. Enter the distributor net, or "
+                    "mark the line 'awaiting vendor quote'."
+                ),
+            }
+
     return {
         "matched_vendor": vendor,
         "vendor_name": vendor,

@@ -67,6 +67,36 @@ export async function PATCH(
   if ((typeof body.margin_rate === 'number' && Number.isFinite(body.margin_rate)) || body.margin_rate === null) {
     patch.margin_rate = body.margin_rate as number | null;
   }
+  // Provenance. `LinePatch` declared both from the start and this route never read them,
+  // so an estimator could correct a quantity but not the citation saying where it came
+  // from - the one field the whole audit gate rests on. A wrong `schedule:A1.2` is worse
+  // than none: it credits a drawing for a number nobody read there.
+  //
+  // Validated against the engine's own prefixes rather than accepted as free text, for
+  // the same reason format_cbc_proposal validates them.
+  const QUANTITY_SOURCE_PREFIXES = ['schedule:', 'tag_count:', 'vision:', 'estimator_confirmed'];
+  const sourced = (value: unknown): value is string =>
+    typeof value === 'string' && QUANTITY_SOURCE_PREFIXES.some((p) => value.startsWith(p));
+
+  if (sourced(body.quantity_source) || body.quantity_source === null) {
+    patch.quantity_source = body.quantity_source as string | null;
+  } else if (body.quantity_source !== undefined) {
+    return NextResponse.json(
+      {
+        error: `quantity_source must start with one of: ${QUANTITY_SOURCE_PREFIXES.join(', ')}`,
+      },
+      { status: 400 },
+    );
+  }
+  if (sourced(body.size_source) || body.size_source === null) {
+    patch.size_source = body.size_source as string | null;
+  } else if (body.size_source !== undefined) {
+    return NextResponse.json(
+      { error: `size_source must start with one of: ${QUANTITY_SOURCE_PREFIXES.join(', ')}` },
+      { status: 400 },
+    );
+  }
+
   if (typeof body.deleted === 'boolean') patch.deleted = body.deleted;
 
   try {
