@@ -31,7 +31,7 @@ guessed — that applies to the Hager adders (NR-7), special-customer margins be
 - `parse_door_size` — `3070` → 3'-0" x 7'-0".
 - `expand_hardware_set` — CBC's **reference** grouping, tagged
   `requires_estimator_confirmation`. The spec's own hardware schedule outranks it.
-- `calculate_lite_louver_price` — the lookup route for NGP / Pemko / Rockwood lite tables.
+- `lite_louver_lookup_plan` — the lookup route for NGP / Pemko / Rockwood lite tables.
 - `calculate_frp_takeoff` — sheets, trims, adhesive, rivets. Returns `provisional: true`;
   the conversion constants are assumptions, not CBC's.
 

@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WORKSPACE_ROOT } from './workspace-db.ts';
 
@@ -22,6 +22,37 @@ function parseJsonFile(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read a memory file, reparsed only when it changes on disk.
+ *
+ * `workspace-db`'s `memoizeOnIndex` is the same idea for the SQLite indexes, but it is
+ * synchronous and these reads are not. Both files are small; what this really buys is that
+ * a page rendering several sections does not re-read and re-parse the same graph once per
+ * section. Keyed on mtime+size, so a learn pass writing the graph is picked up at once.
+ */
+const fileMemos = new Map<string, { stamp: string; value: unknown }>();
+
+async function readMemoized<T>(
+  path: string,
+  parse: (raw: string) => T,
+): Promise<T | null> {
+  let stamp: string;
+  try {
+    const info = await stat(path);
+    stamp = `${info.mtimeMs}:${info.size}`;
+  } catch {
+    fileMemos.delete(path);
+    return null;
+  }
+
+  const hit = fileMemos.get(path);
+  if (hit && hit.stamp === stamp) return hit.value as T;
+
+  const value = parse(await readFile(path, 'utf8'));
+  fileMemos.set(path, { stamp, value });
+  return value;
 }
 
 /**
@@ -55,19 +86,13 @@ export type KnowledgeGraph = {
 
 export async function readKnowledgeGraph(): Promise<KnowledgeGraph | null> {
   const path = join(WORKSPACE_ROOT, 'memory', 'knowledge_graph', 'graph.json');
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch {
-    return null;
-  }
-
-  const parsed = (parseJsonFile(raw) ?? {}) as {
+  const parsed = (await readMemoized(path, parseJsonFile)) as null | {
     okf_version?: string;
     metadata?: Record<string, unknown>;
     nodes?: GraphNode[];
     edges?: GraphEdge[];
   };
+  if (!parsed) return null;
 
   const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
   const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
@@ -162,14 +187,7 @@ export type ActiveProject = {
  */
 export async function readActiveProject(): Promise<ActiveProject | null> {
   const path = join(WORKSPACE_ROOT, 'memory', 'active_project.json');
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch {
-    return null;
-  }
-
-  const parsed = parseJsonFile(raw);
+  const parsed = await readMemoized(path, parseJsonFile);
   if (!parsed) return null;
 
   const str = (value: unknown) => (typeof value === 'string' ? value : null);

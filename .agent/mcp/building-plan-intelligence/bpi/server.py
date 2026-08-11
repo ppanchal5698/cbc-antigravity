@@ -179,7 +179,7 @@ def get_sheet(doc_id: str, sheet: str) -> str:
         try:
             pg = doc[page - 1]
             rows = ix.layout_rows(pg)
-            n_tables = len(ix.page_tables(pg))
+            n_tables = len(ix.cached_page_tables(doc_id, page, pg))
         finally:
             doc.close()
 
@@ -235,7 +235,8 @@ def read_schedule(doc_id: str, sheet: str, region: str = "") -> str:
                     clip = fitz.Rect(x0, y0, x1, y1)
                 except ValueError:
                     return json.dumps({"error": "region must be 'x0,y0,x1,y1' in inches"})
-            tables = ix.page_tables(page, clip)
+            tables = (ix.page_tables(page, clip) if clip is not None
+                      else ix.cached_page_tables(doc_id, page_no, page))
             return json.dumps({
                 "page": page_no,
                 "tables_found": len(tables),
@@ -566,7 +567,8 @@ def find_schedule(doc_id: str, kind: str = "door", read_tables: bool = True) -> 
             try:
                 for cand in ranked[:MAX_SCHEDULE_CANDIDATES]:
                     t0 = time.time()
-                    tables = ix.page_tables(doc[cand["page"] - 1])
+                    tables = ix.cached_page_tables(
+                        doc_id, cand["page"], doc[cand["page"] - 1])
                     cand["tables"] = tables
                     cand["tables_found"] = len(tables)
                     # One pathological sheet must not hang a takeoff. Later candidates

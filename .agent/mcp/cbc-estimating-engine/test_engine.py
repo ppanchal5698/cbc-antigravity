@@ -163,7 +163,7 @@ class TestCBCEstimatingEngine(unittest.TestCase):
         self.assertEqual(hw["keyway"], "Schlage C")
 
     def test_lite_louver_price_stub(self):
-        res = engine.calculate_lite_louver_price(
+        res = engine.lite_louver_lookup_plan(
             glazing_type="Wire Glass",
             lite_size="10x10",
             door_size="3070",

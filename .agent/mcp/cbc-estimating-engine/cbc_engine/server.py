@@ -137,14 +137,14 @@ def expand_hardware_set(
 
 
 @mcp.tool()
-def calculate_lite_louver_price(
+def lite_louver_lookup_plan(
     glazing_type: str,
     lite_size: str,
     door_size: str = "3070",
     vendor: str = "NGP",
 ) -> Dict[str, Any]:
     """Get lite/louver pricing lookup instructions for NGP, PEMKO, or Rockwood catalogs (NR-1)."""
-    return engine.calculate_lite_louver_price(
+    return engine.lite_louver_lookup_plan(
         glazing_type=glazing_type, lite_size=lite_size,
         door_size=door_size, vendor=vendor,
     )

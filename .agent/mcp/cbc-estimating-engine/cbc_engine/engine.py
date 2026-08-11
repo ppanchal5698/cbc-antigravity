@@ -1026,7 +1026,7 @@ def expand_hardware_set(
 # 9. Lite / Louver Pricing Stub (NR-1)
 # ---------------------------------------------------------------------------
 
-def calculate_lite_louver_price(
+def lite_louver_lookup_plan(
     glazing_type: str,
     lite_size: str,
     door_size: str = "3070",

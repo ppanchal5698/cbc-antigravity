@@ -82,7 +82,7 @@ the convention itself as an RFI rather than assuming one.
 `US19` = `622`, `US15` = `619`. Both systems appear in real specs. Premium finishes come
 back flagged for lead time and a possible adder.
 
-For vision lites and louvers, `calculate_lite_louver_price` returns the lookup route; the
+For vision lites and louvers, `lite_louver_lookup_plan` returns the lookup route; the
 prices themselves come from the NGP, Pemko/Markar or Rockwood books — all `text_only` or
 `partial`, so `search_catalog` + `get_page`.
 

@@ -16,7 +16,7 @@ The domain boundary, the estimating rules and the phase gates are always-on rule
 |---|---|---|
 | [building-plan](.agent/plugins/building-plan/) | `building-plan-intelligence` | What the drawings **require** — schedules, partitions, dimensions, tags |
 | [catalog](.agent/plugins/catalog/) | `catalog-intelligence` | Which **vendor** supplies it, and at what catalog price |
-| [estimating](.agent/plugins/pricing/) | `cbc-estimating-engine` | The **math** — quote formulas, multiplier tiers, margin bands, proposal assembly, and the OKF knowledge graph |
+| [estimating](.agent/plugins/estimating/) | `cbc-estimating-engine` | The **math** — quote formulas, multiplier tiers, margin bands, proposal assembly, and the OKF knowledge graph |
 
 Source lives in [`.agent/mcp/`](.agent/mcp/), registered in
 [`.agent/mcp_config.json`](.agent/mcp_config.json). All three run from the workspace `.venv`.
@@ -47,31 +47,31 @@ docs/requirements.md   CBC's confirmed requirements matrix - the authority for t
 
 Confirmed by the estimators on 14 Jul (`docs/requirements.md` § Process Flow). Gates and
 guardrails: [`.agent/rules/cbc-phase-gates.md`](.agent/rules/cbc-phase-gates.md). Procedure:
-[`cbc-master-workflow`](.agent/plugins/pricing/skills/cbc-master-workflow/SKILL.md).
+[`cbc-master-workflow`](.agent/plugins/estimating/skills/cbc-master-workflow/SKILL.md).
 
 ## Agents
 
 Three delegable specialists, each for one half of a takeoff:
-[`door-hardware-estimator`](.agent/plugins/pricing/agents/door-hardware-estimator.md) (Div 08),
-[`specialties-estimator`](.agent/plugins/pricing/agents/specialties-estimator.md) (Div 10 & 06),
-[`pricing-calculator`](.agent/plugins/pricing/agents/pricing-calculator.md) (costing and quote math).
+[`door-hardware-estimator`](.agent/plugins/estimating/agents/door-hardware-estimator.md) (Div 08),
+[`specialties-estimator`](.agent/plugins/estimating/agents/specialties-estimator.md) (Div 10 & 06),
+[`pricing-calculator`](.agent/plugins/estimating/agents/pricing-calculator.md) (costing and quote math).
 
 Governance is not an agent — phase gates, grounding and math invariants are always-on rules
 binding the main thread, checked with
-[`estimate-quality-gate`](.agent/plugins/pricing/skills/estimate-quality-gate/SKILL.md)
+[`estimate-quality-gate`](.agent/plugins/estimating/skills/estimate-quality-gate/SKILL.md)
 before anything is shown to a person.
 
 ## Skills
 
 | Skill | Plugin | For |
 |---|---|---|
-| [`cbc-master-workflow`](.agent/plugins/pricing/skills/cbc-master-workflow/SKILL.md) | estimating | The end-to-end estimate, Phase 0 to 6 |
-| [`estimate-quality-gate`](.agent/plugins/pricing/skills/estimate-quality-gate/SKILL.md) | estimating | The check before any draft is shown |
-| [`door-hardware-schedule`](.agent/plugins/pricing/skills/door-hardware-schedule/SKILL.md) | estimating | Div 08 schedules, throats, hardware sets, finishes |
-| [`specialties-takeoff`](.agent/plugins/pricing/skills/specialties-takeoff/SKILL.md) | estimating | Div 10 accessories and dryers, cross-shelf matching, gaps |
-| [`frp-takeoff`](.agent/plugins/pricing/skills/frp-takeoff/SKILL.md) | estimating | Div 06 FRP panels, trims, adhesive |
-| [`cbc-quote-pricing`](.agent/plugins/pricing/skills/cbc-quote-pricing/SKILL.md) | estimating | The four cost paths, multipliers, margins, tax |
-| [`estimate-proposal-generator`](.agent/plugins/pricing/skills/estimate-proposal-generator/SKILL.md) | estimating | Phase 6 draft proposal |
+| [`cbc-master-workflow`](.agent/plugins/estimating/skills/cbc-master-workflow/SKILL.md) | estimating | The end-to-end estimate, Phase 0 to 6 |
+| [`estimate-quality-gate`](.agent/plugins/estimating/skills/estimate-quality-gate/SKILL.md) | estimating | The check before any draft is shown |
+| [`door-hardware-schedule`](.agent/plugins/estimating/skills/door-hardware-schedule/SKILL.md) | estimating | Div 08 schedules, throats, hardware sets, finishes |
+| [`specialties-takeoff`](.agent/plugins/estimating/skills/specialties-takeoff/SKILL.md) | estimating | Div 10 accessories and dryers, cross-shelf matching, gaps |
+| [`frp-takeoff`](.agent/plugins/estimating/skills/frp-takeoff/SKILL.md) | estimating | Div 06 FRP panels, trims, adhesive |
+| [`cbc-quote-pricing`](.agent/plugins/estimating/skills/cbc-quote-pricing/SKILL.md) | estimating | The four cost paths, multipliers, margins, tax |
+| [`estimate-proposal-generator`](.agent/plugins/estimating/skills/estimate-proposal-generator/SKILL.md) | estimating | Phase 6 draft proposal |
 | [`plan-set-intake`](.agent/plugins/building-plan/skills/plan-set-intake/SKILL.md) | building-plan | Index a new plan set, run the vision pass |
 | [`plan-sheet-lookup`](.agent/plugins/building-plan/skills/plan-sheet-lookup/SKILL.md) | building-plan | Answer one question about an indexed set |
 | [`vendor-catalog-intake`](.agent/plugins/catalog/skills/vendor-catalog-intake/SKILL.md) | catalog | Index the shelf, establish CSI coverage |
@@ -116,8 +116,10 @@ bands. Rules: [`.agent/rules/okf-knowledge-graph-rules.md`](.agent/rules/okf-kno
 ## Sandbox
 
 Agent-written Python runs in [`sandbox/`](sandbox/) under the workspace `.venv`, with a write
-guard that refuses writes resolving outside `sandbox/`. Run via `execute_sandbox_script` or
-`python sandbox/runner.py <script>`. It protects against mistakes, not against hostile code.
+guard that refuses writes resolving outside `sandbox/` or the OS temp directory, and a
+`script_name` check that keeps the script itself inside `sandbox/scripts/`. Run via
+`execute_sandbox_script` or `python sandbox/runner.py <script>`. It protects against
+mistakes, not against hostile code.
 
 ## Open items
 
