@@ -185,12 +185,26 @@ def main(dutch=DUTCH, bid=BID):
     full = sv.render_sheet(d["doc_id"], "A2.0")
     assert len([c for c in full if getattr(c, "type", None) == "image"]) == 6
 
+    # verify_facts caches this document's normalized text. Warm that cache BEFORE the
+    # vision write below, so the assertion afterwards is about invalidation and not about
+    # a cache that happened to be cold.
+    pre = _json(sv.verify_facts(b["doc_id"], ["zzqmarker"]))
+    assert pre["results"][0]["verified"] is False, pre
+
     # vision write-back closes the loop: unreadable page becomes searchable
     page = ov["needs_vision_full"][0]
     rec = _json(sv.record_vision_reading(
         b["doc_id"], str(page),
         "sheet_no=A9.9 GRAVEL BED UNDERDRAIN DETAIL zzqmarker", tile="r1c2"))
     assert rec["sheet_no_set"] == "A9.9", rec
+
+    # ...and verify_facts must see it too. It reads a normalized cache keyed on doc_id,
+    # and doc_id hashes the FILE - which has not changed - so without an explicit
+    # invalidation the claim this vision pass was taken to confirm came back
+    # `verified: false`, and building-plan-rules §4 says to delete a false claim.
+    post = _json(sv.verify_facts(b["doc_id"], ["zzqmarker"]))
+    assert post["results"][0]["verified"] is True, post
+    assert post["results"][0]["found_on"][0]["page"] == page, post
     found = _json(sv.search_sheets(b["doc_id"], "zzqmarker"))
     assert found["hits"] == 1, found
     assert found["results"][0]["page"] == page, found

@@ -54,9 +54,34 @@ def run_sandbox_script(
     """
     if not script_name.endswith(".py"):
         script_name += ".py"
-    
+
+    # `script_name` is the whole boundary, and it has to be checked HERE.
+    #
+    # The write below happens in this process, which has no write guard: sitecustomize
+    # installs one in the CHILD, keyed on CBC_SANDBOX_ROOT, and the parent never sets it.
+    # So an unchecked name escaped and was then executed - `../../.agent/rules/x` landed in
+    # the rules directory, and an absolute path went anywhere the server user could write.
+    if Path(script_name).name != script_name:
+        return {
+            "success": False,
+            "error": f"script_name must be a bare filename, not a path: {script_name!r}",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "PermissionError: scripts are written to sandbox/scripts/ only",
+            "created_files": [],
+        }
+
     script_path = SCRIPTS_DIR / script_name
-    
+    if script_path.resolve().parent != SCRIPTS_DIR.resolve():
+        return {
+            "success": False,
+            "error": f"script_name resolves outside sandbox/scripts/: {script_name!r}",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "PermissionError: scripts are written to sandbox/scripts/ only",
+            "created_files": [],
+        }
+
     if code_content is not None:
         script_path.write_text(code_content, encoding="utf-8")
     elif not script_path.exists():

@@ -573,6 +573,18 @@ _NORM_CACHE = {}
 _NORM_CACHE_MAX = 3
 
 
+def invalidate_norm_cache(doc_id):
+    """Drop a document's normalized text after something writes new sheet_text for it.
+
+    Unlike catalog-intelligence - whose catalog_id hashes mtime, so a re-indexed book is
+    simply a different cache key - a plan set gains text WITHOUT the file changing:
+    `record_vision_reading` writes what a vision pass read. The doc_id is unchanged, so
+    the cache key is unchanged, and verify_facts kept answering from the pre-vision
+    snapshot. The rules then instruct the agent to delete a fact it had read correctly.
+    """
+    _NORM_CACHE.pop(doc_id, None)
+
+
 def normalized_sheets(con, doc_id):
     """[(page, source, normalized body)] for a document, normalized at most once."""
     cached = _NORM_CACHE.get(doc_id)

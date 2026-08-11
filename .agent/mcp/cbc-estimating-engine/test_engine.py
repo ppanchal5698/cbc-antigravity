@@ -399,6 +399,40 @@ class TestGuardrails(unittest.TestCase):
                 self.assertFalse(probe.exists(), "sandbox guard did not hold")
                 break
 
+    def test_sandbox_refuses_a_script_name_that_leaves_scripts_dir(self):
+        """The write happens in the SERVER process, which has no write guard - that one is
+        installed in the child. So an unchecked script_name wrote anywhere and was then
+        executed: '../../.agent/rules/x' landed in the always-on rules directory."""
+        runner = engine._find_sandbox_runner()
+        if runner is None:
+            self.skipTest("sandbox/runner.py not found")
+        sandbox = runner.parent
+
+        for name in ("../../.agent/rules/PWNED_CANARY",
+                     "../PWNED_CANARY",
+                     "subdir/PWNED_CANARY",
+                     str(Path(sandbox.anchor) / "PWNED_CANARY")):
+            with self.subTest(script_name=name):
+                res = engine.execute_sandbox_script(
+                    script_name=name, code_content="print('should never run')",
+                    timeout_seconds=20)
+                self.assertFalse(res["success"], res)
+                self.assertNotIn("should never run", res.get("stdout", ""))
+
+        # Nothing was written anywhere the traversal pointed.
+        for probe in (sandbox.parent / ".agent" / "rules" / "PWNED_CANARY.py",
+                      sandbox.parent / "PWNED_CANARY.py",
+                      Path(sandbox.anchor) / "PWNED_CANARY.py"):
+            self.assertFalse(probe.exists(), f"sandbox escape wrote {probe}")
+
+    def test_sandbox_still_accepts_a_plain_script_name(self):
+        """The guard must not break the ordinary case."""
+        res = engine.execute_sandbox_script(
+            script_name="unit_test_script", code_content="print('plain name ok')",
+            timeout_seconds=20)
+        self.assertTrue(res["success"], res)
+        self.assertIn("plain name ok", res["stdout"])
+
     def test_sandbox_guard_covers_pathlib(self):
         """The guard patched builtins.open only. pathlib goes through io.open, so
         Path.write_text - the way most code writes a file - walked straight past it."""
@@ -900,6 +934,51 @@ class TestMemoryFilesParse(unittest.TestCase):
                     continue
                 with self.subTest(file=path.name, line=n):
                     json.loads(line)
+
+
+class TestMCPToolWrappers(unittest.TestCase):
+    """The tools the agent actually calls, not the functions behind them.
+
+    Every other test here exercises `engine.*` directly. `server.*` is a separate
+    signature, and it drifted: the wrapper carried `state="OH"` for long enough that the
+    Virginia-taxed-at-Ohio's-rate bug was live on the only path an agent can reach, while
+    `test_missing_state_is_blocked_not_defaulted` passed against the engine underneath it.
+    """
+
+    def setUp(self):
+        try:
+            from cbc_engine import server
+        except ImportError as exc:                     # mcp not installed
+            self.skipTest(f"cbc_engine.server unavailable: {exc}")
+        self.server = server
+
+    LINE = {"tag": "01", "quantity": 1, "ext_sale": 100.0, "description": "Threshold",
+            "cost_source": "catalog_list_x_multiplier",
+            "cost_source_detail": "Pemko 2026 p13, 0.45 mult",
+            "quantity_source": "schedule:A2.2 row 01"}
+
+    def test_state_has_no_default_at_the_tool_boundary(self):
+        res = self.server.format_cbc_proposal("Dutch Bros", [dict(self.LINE)], [])
+        self.assertEqual(res["sales_tax_amount"], 0.0,
+                         "omitting state must not silently apply Ohio's rate")
+        self.assertFalse(res["audit_passed"])
+        self.assertTrue(any(f["block"] == "tax" for f in res["audit_failures"]),
+                        res["audit_failures"])
+
+    def test_state_still_taxes_when_it_is_read(self):
+        for state, expected in (("OH", 8.0), ("KY", 6.5), ("VA", 0.0)):
+            with self.subTest(state=state):
+                res = self.server.format_cbc_proposal(
+                    "Dutch Bros", [dict(self.LINE)], [], state=state)
+                self.assertEqual(res["sales_tax_amount"], expected)
+                self.assertTrue(res["audit_passed"], res["audit_failures"])
+
+    def test_frp_waste_default_comes_from_the_engine_constants(self):
+        """Not restated in the wrapper - FRP_CONSTANTS is the single source, and CBC has
+        still to confirm it (Open Item 5)."""
+        self.assertEqual(
+            self.server.calculate_frp_takeoff(perimeter_lf=100.0)["waste_pct"],
+            engine.FRP_CONSTANTS["waste_pct"])
 
 
 if __name__ == "__main__":

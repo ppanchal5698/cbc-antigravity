@@ -686,6 +686,10 @@ def record_vision_reading(doc_id: str, sheet: str, text: str, tile: str = "") ->
         con.execute("UPDATE sheets SET vision_need='none', vision_status='recorded' "
                     "WHERE doc_id=? AND page=?", (doc_id, page))
         con.commit()
+        # This document's text just changed without its file changing, so verify_facts'
+        # normalized cache is now a pre-vision snapshot. Drop it, or the very claims this
+        # reading was taken to confirm come back verified: false.
+        ix.invalidate_norm_cache(doc_id)
         return json.dumps({"page": page, "recorded_chars": len(text),
                            "sheet_no_set": found, "vision_need": "none",
                            "vision_status": "recorded"})
