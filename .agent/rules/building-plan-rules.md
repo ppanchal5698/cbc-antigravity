@@ -57,6 +57,23 @@ Anything returning `verified: false` **is not in this document.** Delete it or
 replace it with the document's exact wording (`near_miss` shows you where the
 real wording is). Never restore it from product knowledge.
 
+**Read `verified_by`, not just `verified`.** The two answers are different kinds
+of evidence:
+
+- **`document`** — the claim is in the sheet's own text layer. This is the strong
+  case, and the only one that can carry a `[schedule]` or `[spec]` tag.
+- **`vision_reading`** — the claim is in text *you* wrote back with
+  `record_vision_reading`. On a sheet whose text was outlined to vectors that is
+  the only evidence there will ever be, so it counts and the takeoff proceeds.
+  But it is your own transcription, and it cannot corroborate you. Tag it
+  `[drawing]`, say it was read by eye, and never let it be the sole support for a
+  model number, dimension, finish or price. If a schedule states the same thing,
+  go and read the schedule.
+- **`both`** — the vision pass agrees with the text layer. Strongest of all.
+
+A claim verified only by your own vision reading is not the same as a verified
+claim, however identical the `verified: true` looks.
+
 This is the last step before answering. Not optional.
 
 ## Never supply detail the document does not
@@ -115,7 +132,10 @@ mark how you got it:
 - **[spec]** — specification text from a G-series sheet.
 - **[note]** — a general or keyed note on a drawing.
 - **[drawing]** — read visually off a tile. Say so; a dimension read by eye is
-  not as certain as one from a schedule.
+  not as certain as one from a schedule. Anything `verify_facts` reports as
+  `verified_by: vision_reading` belongs here, whatever it is about — the sheet
+  was read by a model, and `verified: true` on that row means only that the same
+  model wrote it down.
 - **[not stated]** — the set does not say.
 
 Never present these as equally certain, and never let knowledge from outside the

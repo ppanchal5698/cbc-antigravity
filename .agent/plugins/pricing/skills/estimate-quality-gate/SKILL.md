@@ -68,6 +68,13 @@ document is not verified in another.
 `verified: false` means **not in that document**. Delete it or replace it with the
 document's own wording from `near_miss`. Never restore it from product knowledge.
 
+`verified: true` is not one thing. On the plan server, check `verified_by`: `document`
+means the sheet's own text layer, `vision_reading` means text a vision pass wrote back —
+your own transcription, which cannot corroborate you. A vision-only fact is legitimate on
+an outlined sheet and is tagged `[drawing]`, never `[schedule]`, and never stands alone
+behind a model number, dimension, finish or price. Catalog facts have no such split: a
+catalog's page text only ever comes from the book.
+
 Watch for these specifically, because they are what a confident model supplies unprompted:
 
 - a product line name because the manufacturer is right
