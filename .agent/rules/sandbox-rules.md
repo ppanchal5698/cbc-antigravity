@@ -28,8 +28,17 @@ and returns exit code, stdout, stderr, duration and the files the run actually t
 
 The runner installs a write guard into the child process: `open()` in any write mode,
 `os.remove`, `os.rename` and `shutil` writes are resolved to an absolute path and **refused
-unless the target is inside `sandbox/`**. An absolute path to `memory/graph.json` or a
-`../../` escape raises `PermissionError` rather than corrupting workspace state.
+unless the target is inside `sandbox/` or the OS temp directory**. An absolute path to
+`memory/graph.json` or a `../../` escape raises `PermissionError` rather than corrupting
+workspace state.
+
+The temp directory is deliberately allowed — libraries write there routinely and a script
+that cannot use `tempfile` is not usable — but it is genuinely outside `sandbox/`, so a
+script CAN leave files behind there. Nothing in `sandbox/outputs/` is affected.
+
+`script_name` is checked before any of this. It has to be, because the file is written by
+the *server* process, which the guard above never runs in: it names a file directly under
+`sandbox/scripts/`, and a path separator, a `..` or an absolute path is refused outright.
 
 That guard covers ordinary Python file writes. It is not a security boundary — a script that
 shells out, or writes through a C extension, bypasses it. Treat the sandbox as protection

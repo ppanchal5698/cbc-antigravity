@@ -68,8 +68,11 @@ writes a vendor ("NGP", "Markar", "Assa Abloy") onto the right tier.
 A multiplier that `open_catalog` reports as `multiplier_in_filename` came from a **file
 name**, not a document. Confirm it against the vendor's own sheet before applying it.
 
-**World Dryer's real price list is an `.xlsx`** and is not indexed — the PDF on the shelf is
-only a memo. Hand-enter the cost and tag the line `[not indexed]`.
+**World Dryer's real price list is an `.xlsx`, and it IS indexed** — the PDF beside it is
+only a memo, so look the model up rather than hand-entering it. Spreadsheet rows carry
+`price_basis`: a row that is already net is a cost, and the `0.339` multiplier must not be
+applied on top of it. `.xls`, `.docx` and `.msg` on the shelf remain unreadable and are the
+only things `[not indexed]` should now be claimed for.
 
 ## 3. Margin
 

@@ -17,6 +17,7 @@ import {
   startAuth,
 } from './agy-auth.ts';
 import { gate, REFUSAL_TEXT } from './gatekeeper.ts';
+import { assertAuthConfigured, authorized } from './auth.ts';
 import {
   CHAT_SCOPES,
   sessionTitleFromMessage,
@@ -374,6 +375,15 @@ const server = createServer((req, res) => {
 
   void (async () => {
     try {
+      // Before any route, including /health: an unauthenticated health endpoint confirms
+      // for free that this port is a CBC gateway, and reports the workspace path with it.
+      if (!authorized(req)) {
+        json(res, 401, {
+          error:
+            'unauthorized: send the gateway token as `Authorization: Bearer <token>`',
+        });
+        return;
+      }
       if (path === '/health') {
         json(res, 200, {
           ok: true,
@@ -457,6 +467,9 @@ const server = createServer((req, res) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[gateway] unhandled rejection:', reason);
 });
+
+// Refuses to start rather than listen unauthenticated on a reachable interface.
+assertAuthConfigured();
 
 await initDb();
 startWorker();

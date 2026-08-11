@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable, passthroughSse } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable, passthroughSse } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,7 +11,7 @@ export async function GET(
   const { id } = await ctx.params;
   const lastEventId = request.headers.get('last-event-id');
   try {
-    const upstream = await fetch(`${GATEWAY_URL}/runs/${id}/events`, {
+    const upstream = await gatewayFetch(`/runs/${id}/events`, {
       headers: lastEventId ? { 'Last-Event-ID': lastEventId } : undefined,
       signal: request.signal,
     });

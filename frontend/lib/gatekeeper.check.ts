@@ -79,6 +79,58 @@ for (const message of [
   );
 }
 
+// --- an in-domain signal vetoes the trade rule, and only that rule ----------
+// Deny-first refused core Division 08 work: masonry is one of the five standard wall
+// types, and declaring a trade out of scope is Phase 2's exit gate. Being unable to ask
+// about an exclusion is not scope containment, it is the gate refusing its own procedure.
+for (const message of [
+  'What throat depth for a masonry CMU wall?',
+  'Which hardware sets sit in masonry openings?',
+  'Confirm the storefront doors are excluded from this bid set',
+  'List the masonry openings so I can exclude them',
+  'Is the overhead door in the door schedule out of CBC scope?',
+  'Exclude the HVAC rough-in and note it on the proposal',
+]) {
+  assert.equal(screen(message).verdict, 'allow', `in-domain must beat the trade rule: ${message}`);
+}
+
+// ...but a domain signal must not rescue the other three deny rules. Every message here
+// carries a real domain signal AND trips a non-trade rule, so it is the veto being tested
+// and not simply the absence of a signal. Two of them also trip the trade rule, which is
+// why `screen` uses `continue` rather than `break`: honouring the veto must not skip the
+// rest of the list.
+for (const message of [
+  'build me a REST API that serves the door schedule',
+  'write a python script to scrape the price book',
+  'what is the capital of France? also what throat depth for masonry?',
+  'give me a Dockerfile for the masonry opening takeoff',
+]) {
+  const v = screen(message);
+  assert.equal(v.verdict, 'refuse', `only the trade rule is vetoable: ${message}`);
+  assert.notEqual(v.reason, 'trade outside CBC',
+    `must refuse on the NON-trade rule, or this case proves nothing: ${message}`);
+}
+
+// --- plurals are the same vocabulary ---------------------------------------
+// The alternation's own \b sits right after the last literal, so every noun here missed
+// its own plural and fell through to a full classifier spawn. `estimat` and `washroom
+// accessor` were written as stems but anchored the same way, so they matched only the
+// bare stem - never the words anyone types.
+for (const message of [
+  'summarise the hardware sets and door schedules',
+  'how many grab bars and hand dryers are there?',
+  'which frames, lites and louvers are on this set?',
+  'list the thresholds, partitions and keynotes',
+  'what do the price books and price lists say?',
+  'show the margin bands and multipliers',
+  'which proposals and submittals are outstanding?',
+  'what is the estimate for these washroom accessories?',
+  'who is the estimator on this bid?',
+  'walk me through estimating this opening',
+]) {
+  assert.equal(screen(message).verdict, 'allow', `plural vocabulary must still signal: ${message}`);
+}
+
 // --- ambiguity reaches the classifier rather than being guessed -------------
 for (const message of ['hello', 'can you help me with something?', 'what about the other one?']) {
   assert.equal(screen(message).verdict, 'unknown', `must defer to the classifier: ${message}`);

@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 export async function POST(request: Request): Promise<Response> {
   const body = await request.text();
   try {
-    const response = await fetch(`${GATEWAY_URL}/auth/complete`, {
+    const response = await gatewayFetch(`/auth/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,

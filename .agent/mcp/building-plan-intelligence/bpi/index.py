@@ -573,6 +573,45 @@ _NORM_CACHE = {}
 _NORM_CACHE_MAX = 3
 
 
+# Table detection is the expensive read on this server: the find_schedule budget records
+# 0.4-2.8s for a typical sheet and 25-31s for a pathological one. During one takeoff
+# get_sheet, read_schedule and find_schedule all run it over the same handful of sheets,
+# each re-opening the PDF and re-detecting from scratch.
+#
+# Cached lazily rather than precomputed at index time, which was the other option and a
+# worse one: a full-set scan is ~200s and would be paid on EVERY set, to spare a few reads
+# on the four or five sheets an estimate actually looks at.
+#
+# Only the unclipped result is cached - a `region` call is a different question and must
+# not be answered from the whole-sheet detection.
+_TABLE_CACHE = {}
+_TABLE_CACHE_MAX = 64
+
+
+def cached_page_tables(doc_id, page_no, page):
+    """`page_tables(page)` for a whole sheet, remembered per (doc_id, page)."""
+    key = (doc_id, page_no)
+    hit = _TABLE_CACHE.get(key)
+    if hit is None:
+        hit = page_tables(page)
+        if len(_TABLE_CACHE) >= _TABLE_CACHE_MAX:
+            _TABLE_CACHE.pop(next(iter(_TABLE_CACHE)))
+        _TABLE_CACHE[key] = hit
+    return hit
+
+
+def invalidate_norm_cache(doc_id):
+    """Drop a document's normalized text after something writes new sheet_text for it.
+
+    Unlike catalog-intelligence - whose catalog_id hashes mtime, so a re-indexed book is
+    simply a different cache key - a plan set gains text WITHOUT the file changing:
+    `record_vision_reading` writes what a vision pass read. The doc_id is unchanged, so
+    the cache key is unchanged, and verify_facts kept answering from the pre-vision
+    snapshot. The rules then instruct the agent to delete a fact it had read correctly.
+    """
+    _NORM_CACHE.pop(doc_id, None)
+
+
 def normalized_sheets(con, doc_id):
     """[(page, source, normalized body)] for a document, normalized at most once."""
     cached = _NORM_CACHE.get(doc_id)

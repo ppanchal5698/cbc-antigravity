@@ -128,4 +128,31 @@ assert.equal(resumed.at(-1)!.id, 6000);
 // surviving one rather than an empty replay.
 assert.equal(long.since(0)[0]!.id, 1001);
 
+// --- a finished run does not stay in memory forever -------------------------
+// Nothing evicted these, so a gateway that stays up accumulated up to MAX_FRAMES per
+// completed run for its whole life. `onFinished` arms the eviction; it must fire exactly
+// once, because a run can push `error` after `done` on a bad tail and arming the timer
+// twice would delete a buffer a reconnecting browser is still reading.
+{
+  let fired = 0;
+  const buffer = new RunBuffer();
+  buffer.onFinished = () => {
+    fired += 1;
+  };
+
+  buffer.push({ kind: 'token', text: 'working' });
+  assert.equal(fired, 0, 'an in-flight run is not finished');
+  assert.equal(buffer.finished, false);
+
+  buffer.push({ kind: 'done', response: 'ok' });
+  assert.equal(fired, 1, 'a terminal frame arms eviction');
+  assert.equal(buffer.finished, true);
+
+  buffer.push({ kind: 'error', message: 'late tail' });
+  assert.equal(fired, 1, 'a second terminal frame must not arm it again');
+
+  // Eviction is about memory, not about replay: the frames are still there for the TTL.
+  assert.equal(buffer.since(0).length, 3, 'a finished run stays replayable until evicted');
+}
+
 console.log('event mapping check passed');

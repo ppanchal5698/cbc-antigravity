@@ -28,6 +28,7 @@ const TOKEN_PATH =
   join(homedir(), '.gemini', 'antigravity-cli', 'antigravity-oauth-token');
 
 const URL_WAIT_MS = 90_000;
+const CODE_SENT_WAIT_MS = 15_000;
 const COMPLETE_WAIT_MS = 180_000;
 const POLL_MS = 250;
 
@@ -272,6 +273,24 @@ export async function completeAuth(code: string): Promise<{ signedIn: boolean; e
   await mkdir(BROKER_DIR, { recursive: true });
   // Do not log the code.
   await writeFile(join(BROKER_DIR, 'code'), trimmed, { encoding: 'utf8', mode: 0o600 });
+
+  // Broker must inject into the quiet paste prompt; fail fast if it never does.
+  try {
+    await waitFor(
+      async () => (await isSignedIn()) || (await readBrokerStatus()) === 'code-sent',
+      CODE_SENT_WAIT_MS,
+      'broker to accept authorization code',
+    );
+  } catch (err) {
+    const status = await readBrokerStatus();
+    if (!(await isSignedIn()) && status !== 'code-sent') {
+      throw new Error(
+        err instanceof Error
+          ? `${err.message} (broker status: ${status || 'unknown'}). Start sign-in again.`
+          : String(err),
+      );
+    }
+  }
 
   await waitFor(async () => isSignedIn(), COMPLETE_WAIT_MS, 'token file');
   killSession();

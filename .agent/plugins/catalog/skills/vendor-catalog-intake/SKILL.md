@@ -34,9 +34,14 @@ open_catalog(pdf_path)     # one call per PDF, cached by mtime + size
 ```
 
 `catalogs/` is one folder per vendor and the folder name becomes the vendor on
-every product returned. The server reads **PDF only** — the spreadsheets and
-`.msg` files on the shelf are invisible to it, and World Dryer's real price list
-is one of them.
+every product returned. The server reads **PDF and `.xlsx` / `.xlsm`** — World
+Dryer's real price list is a spreadsheet and is indexed like any other book.
+Only `.xls`, `.docx` and `.msg` on the shelf are invisible to it.
+
+A spreadsheet is where the net pricing lives, so its rows carry `price_basis`
+and `already_net`: one sheet can print LIST, DEALER, MAP and NET side by side,
+and applying a vendor multiplier to a row that is already net under-prices the
+job.
 
 ## 2. Report coverage, not just contents
 

@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable, passthroughSse } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable, passthroughSse } from '@/lib/gateway';
 
 // Streaming only works if this route is never statically evaluated.
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 export async function POST(request: Request): Promise<Response> {
   const body = await request.text();
   try {
-    const upstream = await fetch(`${GATEWAY_URL}/chat`, {
+    const upstream = await gatewayFetch(`/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,

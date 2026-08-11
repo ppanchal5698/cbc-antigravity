@@ -31,7 +31,7 @@ Indexed 2026-08-06. **Coverage** is what the agent must route on:
 | **NATIONAL GUARD PRODUCTS** | NGP Threshold Catalog | 56 | text_only | — | product data, no prices |
 | **NUDO** | MIDWEST-EAST COAST FRP 5-11-26 | 1 | text_only | — | |
 | **NUDO** | VINYL MOLDINGS PRICING 5-11-26 | 5 | text_only | — | |
-| **WORLD DRYER** | L3-Pricing Change Memo Sept 2022 | 1 | text_only | — | memo; the price list is .xlsx |
+| **WORLD DRYER** | L3-Pricing Change Memo Sept 2022 | 1 | text_only | — | memo only; the price list is the `.xlsx` beside it, which IS indexed |
 
 Run `list_catalogs` for the live version of this table — it is generated from
 the index, this one is a snapshot.
@@ -67,16 +67,23 @@ Never read a text_only catalog's silence as "this vendor does not carry it."
 
 ## Non-PDF files
 
-`catalog-intelligence` reads **PDF only**. These are on the shelf but not
-indexed, and must be opened by hand:
+`catalog-intelligence` indexes **PDF and `.xlsx` / `.xlsm`**. The spreadsheets
+below are read like any price book, and they matter more than their count
+suggests: this is where the shelf's **net** pricing lives, so every row from one
+carries a `price_basis` and a row that is already net must never have a vendor
+multiplier applied on top.
 
-- `BOBRICK/GAM-PL 2020 PRICE LIST.xlsx`, `Gamco Cross over (2).xls`,
-  `Shandas Cross Reference.xlsx`, `Multiplier.docx`,
-  `Hamilton Parker 2017 Program Price Sheet Bobrick NET.xlsx`, `… Gamco.xlsx`
 - `WORLD DRYER/Copy of L-3World Dryer Pricing_9.2022_L3 - .339 MULTIPLIER.xlsx`
-  — **this is World Dryer's actual price list**; the indexed PDF is only a memo
+  — **World Dryer's actual price list**; the PDF beside it is only a memo
+- `BOBRICK/GAM-PL 2020 PRICE LIST.xlsx`, `Shandas Cross Reference.xlsx`,
+  `Hamilton Parker 2017 Program Price Sheet Bobrick NET.xlsx`, `… Gamco.xlsx`
+
+Still unreadable, and the only files `[not indexed]` should be claimed for:
+
+- `BOBRICK/Gamco Cross over (2).xls` — the old binary `.xls`, not `.xlsx`
+- `BOBRICK/Multiplier.docx`
 - `NUDO/FW Pricing Sheets - NUDO - PRICE INCREASE.msg`
-- `CBC_Req_Validation_v1_3.xlsx`
+- `CBC_Req_Validation_v1_3.xlsx` — a requirements workbook, not a price book
 
 ## Multipliers
 

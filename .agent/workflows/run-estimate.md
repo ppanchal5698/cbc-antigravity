@@ -8,7 +8,7 @@ description: Run the full CBC commercial estimate on a bid set in plans/ - Phase
 Run CBC's confirmed Phase 0–6 estimating process end to end on the bid set in `plans/`, and
 deliver a draft proposal for estimator review.
 
-Follow [`cbc-master-workflow`](../plugins/pricing/skills/cbc-master-workflow/SKILL.md) exactly.
+Follow [`cbc-master-workflow`](../plugins/estimating/skills/cbc-master-workflow/SKILL.md) exactly.
 Read it before you start. The phase gates and guardrails in `.agent/rules/cbc-phase-gates.md`
 bind every step.
 
@@ -59,7 +59,7 @@ substitution requiring approval. Register every RFI.
 names — do not work around the gate. Archive to `memory/prior_quotes/`, run
 `okf_learn_from_quote`, update the job record.
 
-Then run [`estimate-quality-gate`](../plugins/pricing/skills/estimate-quality-gate/SKILL.md)
+Then run [`estimate-quality-gate`](../plugins/estimating/skills/estimate-quality-gate/SKILL.md)
 over the whole thing before showing me anything.
 
 ## Do not

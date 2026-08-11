@@ -188,9 +188,9 @@ inventing a reconciliation method.
 
 ## Close every estimate with what you could not confirm
 
-Unpriced RFQ lines, `text_only` catalogs not read page by page, the spreadsheets the server
-cannot open (World Dryer's real price list is one), drawings that do not state a finish,
-hardware groups with no definition, and every open CBC item the estimate touched.
+Unpriced RFQ lines, `text_only` catalogs not read page by page, the `.xls` / `.docx` /
+`.msg` files the server cannot open, drawings that do not state a finish, hardware groups
+with no definition, and every open CBC item the estimate touched.
 
 **A short takeoff that is entirely correct beats a comprehensive one that is 85% correct.**
 On construction documents the 15% is what costs money.

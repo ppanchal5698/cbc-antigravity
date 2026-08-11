@@ -1,8 +1,59 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { extractJson } from './xlsx/coerce';
-import { WORKSPACE_ROOT } from './workspace-db';
-import type { GraphEdge, GraphNode } from './graph-types';
+import { WORKSPACE_ROOT } from './workspace-db.ts';
+
+import type { GraphEdge, GraphNode } from './graph-types.ts';
+
+/**
+ * These two files are plain JSON and `JSON.parse` reads them.
+ *
+ * This used to go through `extractJson`, the tolerant reader built for agy's streamed
+ * output, on the strength of a comment saying `active_project.json` "currently has two
+ * stray `}` at EOF". It does not, and both files parse cleanly. The cost of the workaround
+ * was not just a character-by-character scan on every render: `extractJson` returns the
+ * LAST balanced span that parses, so a genuinely truncated file would have been read as
+ * some earlier fragment and rendered as if it were the whole record. Failing to read a
+ * corrupt job record is the correct outcome.
+ */
+function parseJsonFile(raw: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read a memory file, reparsed only when it changes on disk.
+ *
+ * `workspace-db`'s `memoizeOnIndex` is the same idea for the SQLite indexes, but it is
+ * synchronous and these reads are not. Both files are small; what this really buys is that
+ * a page rendering several sections does not re-read and re-parse the same graph once per
+ * section. Keyed on mtime+size, so a learn pass writing the graph is picked up at once.
+ */
+const fileMemos = new Map<string, { stamp: string; value: unknown }>();
+
+async function readMemoized<T>(
+  path: string,
+  parse: (raw: string) => T,
+): Promise<T | null> {
+  let stamp: string;
+  try {
+    const info = await stat(path);
+    stamp = `${info.mtimeMs}:${info.size}`;
+  } catch {
+    fileMemos.delete(path);
+    return null;
+  }
+
+  const hit = fileMemos.get(path);
+  if (hit && hit.stamp === stamp) return hit.value as T;
+
+  const value = parse(await readFile(path, 'utf8'));
+  fileMemos.set(path, { stamp, value });
+  return value;
+}
 
 /**
  * The OKF knowledge graph - CBC's institutional memory.
@@ -15,7 +66,7 @@ import type { GraphEdge, GraphNode } from './graph-types';
  * `id`, `class` and `confidence` - everything else is class-dependent.
  */
 
-export * from './graph-types';
+export * from './graph-types.ts';
 
 export type KnowledgeGraph = {
   okfVersion: string;
@@ -35,20 +86,13 @@ export type KnowledgeGraph = {
 
 export async function readKnowledgeGraph(): Promise<KnowledgeGraph | null> {
   const path = join(WORKSPACE_ROOT, 'memory', 'knowledge_graph', 'graph.json');
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch {
-    return null;
-  }
-
-  // extractJson tolerates trailing junk, which several memory files carry.
-  const parsed = extractJson(raw) as {
+  const parsed = (await readMemoized(path, parseJsonFile)) as null | {
     okf_version?: string;
     metadata?: Record<string, unknown>;
     nodes?: GraphNode[];
     edges?: GraphEdge[];
   };
+  if (!parsed) return null;
 
   const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
   const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
@@ -102,7 +146,16 @@ export async function readKnowledgeGraph(): Promise<KnowledgeGraph | null> {
 
 export type ActiveProject = {
   projectName: string;
+  /** What the job record SAYS. Written by the agent, checked by nobody until now. */
   phaseCompleted: number;
+  /**
+   * Phase 6's exit gate is "subtotals synced, archive written, learning pass run"
+   * (`cbc-phase-gates`). Each is an artifact that either exists or does not, so the claim
+   * is checkable — and the live record failed it: `phase_completed: 6` with
+   * `memory/prior_quotes/` holding nothing but a README and `learning_cycles_completed`
+   * at 0. Anything unmet here is listed, and an empty list means the claim stands up.
+   */
+  gateGapsAtPhase6: string[];
   mode: string | null;
   clientAccount: string | null;
   projectState: string | null;
@@ -127,24 +180,15 @@ export type ActiveProject = {
 };
 
 /**
- * The job record. The file on disk currently has two stray `}` at EOF and
- * `JSON.parse` throws on it, so this goes through the same tolerant reader.
+ * The job record, plus whether its own phase claim survives contact with the artifacts.
+ *
+ * (The comment that used to sit here said the file has "two stray `}` at EOF" and throws
+ * `JSON.parse`. It does not, and has not for as long as git remembers.)
  */
 export async function readActiveProject(): Promise<ActiveProject | null> {
   const path = join(WORKSPACE_ROOT, 'memory', 'active_project.json');
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch {
-    return null;
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = extractJson(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const parsed = await readMemoized(path, parseJsonFile);
+  if (!parsed) return null;
 
   const str = (value: unknown) => (typeof value === 'string' ? value : null);
   const num = (value: unknown) => (typeof value === 'number' ? value : 0);
@@ -155,9 +199,32 @@ export async function readActiveProject(): Promise<ActiveProject | null> {
   const frp = (schedules.frp_takeoff ?? {}) as Record<string, unknown>;
   const summary = parsed.pricing_summary as Record<string, unknown> | undefined;
 
+  const phase = num(parsed.phase_completed);
+  const gateGapsAtPhase6: string[] = [];
+  if (phase >= 6) {
+    // Each of these is a Phase 6 exit-gate artifact, and each is a file on disk or a
+    // counter in the graph. A number in a JSON file is not evidence that work happened.
+    if (!summary) gateGapsAtPhase6.push('no pricing_summary — subtotals were never synced');
+    const archived = await readdir(join(WORKSPACE_ROOT, 'memory', 'prior_quotes'))
+      .then((names) => names.some((n) => n.endsWith('.json')))
+      .catch(() => false);
+    if (!archived) {
+      gateGapsAtPhase6.push(
+        'memory/prior_quotes/ holds no archived quote — the Phase 6 archive step did not run',
+      );
+    }
+    const graph = await readKnowledgeGraph();
+    if (graph && graph.learningCycles === 0) {
+      gateGapsAtPhase6.push(
+        'the OKF graph records 0 learning cycles — okf_learn_from_quote did not run',
+      );
+    }
+  }
+
   return {
     projectName: str(parsed.project_name) ?? 'Untitled project',
-    phaseCompleted: num(parsed.phase_completed),
+    phaseCompleted: phase,
+    gateGapsAtPhase6,
     mode: str(parsed.mode),
     clientAccount: str(parsed.client_account),
     projectState: str(parsed.project_state),

@@ -182,6 +182,8 @@ export class RunBuffer {
   readonly frames: StreamFrame[] = [];
   private listeners = new Set<(id: number, frame: StreamFrame) => void>();
   finished = false;
+  /** Fired once, when the run reaches a terminal frame. Set by `getRunBuffer`. */
+  onFinished?: () => void;
 
   /**
    * SSE id of `frames[0]`, rising as the cap evicts the oldest frames.
@@ -204,7 +206,12 @@ export class RunBuffer {
       this.firstId += 1;
     }
     const id = this.lastId;
-    if (frame.kind === 'done' || frame.kind === 'error') this.finished = true;
+    // Once only: a run can push `error` after `done` on a bad tail, and the eviction
+    // timer must not be armed twice.
+    if ((frame.kind === 'done' || frame.kind === 'error') && !this.finished) {
+      this.finished = true;
+      this.onFinished?.();
+    }
     for (const listener of this.listeners) listener(id, frame);
   }
 
@@ -229,10 +236,25 @@ export class RunBuffer {
 
 export const runBuffers = new Map<string, RunBuffer>();
 
+/**
+ * How long a finished run's frames stay replayable.
+ *
+ * Long enough that a browser dropping its connection as the run ends still gets the tail
+ * on reconnect; short enough that the gateway does not hold every run it has ever seen.
+ * Nothing evicted these, so a long-lived process accumulated up to MAX_FRAMES per
+ * completed run for as long as it stayed up.
+ */
+const FINISHED_TTL_MS = 5 * 60_000;
+
 export function getRunBuffer(runId: string): RunBuffer {
   let buffer = runBuffers.get(runId);
   if (!buffer) {
     buffer = new RunBuffer();
+    buffer.onFinished = () => {
+      const timer = setTimeout(() => runBuffers.delete(runId), FINISHED_TTL_MS);
+      // Never hold the process open for a buffer nobody is waiting on.
+      timer.unref?.();
+    };
     runBuffers.set(runId, buffer);
   }
   return buffer;

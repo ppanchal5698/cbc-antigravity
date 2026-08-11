@@ -185,12 +185,43 @@ def main(dutch=DUTCH, bid=BID):
     full = sv.render_sheet(d["doc_id"], "A2.0")
     assert len([c for c in full if getattr(c, "type", None) == "image"]) == 6
 
+    # verify_facts caches this document's normalized text. Warm that cache BEFORE the
+    # vision write below, so the assertion afterwards is about invalidation and not about
+    # a cache that happened to be cold.
+    pre = _json(sv.verify_facts(b["doc_id"], ["zzqmarker"]))
+    assert pre["results"][0]["verified"] is False, pre
+
     # vision write-back closes the loop: unreadable page becomes searchable
     page = ov["needs_vision_full"][0]
     rec = _json(sv.record_vision_reading(
         b["doc_id"], str(page),
         "sheet_no=A9.9 GRAVEL BED UNDERDRAIN DETAIL zzqmarker", tile="r1c2"))
     assert rec["sheet_no_set"] == "A9.9", rec
+
+    # ...and verify_facts must see it too. It reads a normalized cache keyed on doc_id,
+    # and doc_id hashes the FILE - which has not changed - so without an explicit
+    # invalidation the claim this vision pass was taken to confirm came back
+    # `verified: false`, and building-plan-rules §4 says to delete a false claim.
+    post = _json(sv.verify_facts(b["doc_id"], ["zzqmarker"]))
+    assert post["results"][0]["verified"] is True, post
+    assert post["results"][0]["found_on"][0]["page"] == page, post
+
+    # ...but it must not read as if the DOCUMENT said it. This text is the model's own
+    # transcription of a tile, written back into the index. It verifies - on an outlined
+    # sheet it is the only evidence there will ever be - and it cannot corroborate the
+    # reader who wrote it. Reported identically to a text-layer hit, a hallucinated model
+    # number recorded during a vision pass stays "verified" for the life of the index.
+    assert post["results"][0]["verified_by"] == "vision_reading", post
+    assert "caution" in post["results"][0], post
+    assert "zzqmarker" in post["verified_only_by_vision_reading"], post
+    assert "[drawing]" in post["note"], post
+
+    # A claim that IS in the text layer keeps the strong label.
+    doc_claim = _json(sv.verify_facts(d["doc_id"], ["FLOOR PLAN"]))
+    assert doc_claim["results"][0]["verified"] is True, doc_claim
+    assert doc_claim["results"][0]["verified_by"] == "document", doc_claim
+    assert "caution" not in doc_claim["results"][0], doc_claim
+    assert not doc_claim["verified_only_by_vision_reading"], doc_claim
     found = _json(sv.search_sheets(b["doc_id"], "zzqmarker"))
     assert found["hits"] == 1, found
     assert found["results"][0]["page"] == page, found
@@ -261,6 +292,95 @@ def main(dutch=DUTCH, bid=BID):
     print(f"    A2.2 door schedule rows: {tags}  (numbering skips - all present)")
     print(f"    verify_facts: {len(checks)}/{len(checks)} correct verdicts")
     print(f"    cross_reference: Kawneer 451T/541T conflict surfaced")
+
+
+# ---------------------------------------------------------------------------
+# pytest entry points
+#
+# Everything above is one long script with a `main()`, and pytest collects on the `test_`
+# prefix - so `pytest .agent/mcp`, the command AGENTS.md documents as THE test command,
+# collected ZERO tests from this server and said so only as a count nobody reads. The
+# engine and catalog suites ran; the plan server, which owns schedules, vision and
+# verify_facts, ran nothing.
+#
+# `main()` also needs two reference sets that live outside the repo, so it cannot be the
+# only coverage. The contract test below runs against whatever plan PDF the workspace
+# actually has.
+# ---------------------------------------------------------------------------
+
+def test_reference_plan_sets():
+    """The full script, when the reference sets are available (BPI_SAMPLES)."""
+    import pytest
+    for p in (DUTCH, BID):
+        if not os.path.exists(p):
+            pytest.skip(f"reference plan set not present: {os.path.basename(p)}")
+    main()
+
+
+def _any_workspace_plan():
+    if not os.path.isdir(SAMPLES):
+        return None
+    pdfs = sorted(f for f in os.listdir(SAMPLES) if f.lower().endswith(".pdf"))
+    if not pdfs:
+        return None
+    return os.path.join(SAMPLES, min(pdfs, key=lambda f: os.path.getsize(
+        os.path.join(SAMPLES, f))))
+
+
+def test_vision_reading_verifies_but_is_labelled_as_the_readers_own(tmp_path):
+    """Two defects, one contract, and they pull in opposite directions.
+
+    A vision reading MUST verify: on a sheet whose text was outlined to vectors it is the
+    only evidence that will ever exist, and verify_facts answering `false` has the rules
+    order a correctly-read fact deleted. It also must NOT read as though the document said
+    it - it is the model's own transcription, saved back into the index, so a hallucinated
+    model number recorded during a vision pass stayed 'verified' for the life of the cache.
+
+    Runs against a throwaway BPI_CACHE. Writing a marker into the shared index would leave
+    a sheet flagged `vision_status='recorded'` that nobody actually read, which is exactly
+    the lie the Phase 3 gate reads.
+    """
+    import pytest
+    plan = _any_workspace_plan()
+    if plan is None:
+        pytest.skip(f"no plan PDF in {SAMPLES}")
+
+    os.environ["BPI_CACHE"] = str(tmp_path)
+    doc = _json(sv.open_plan_set(plan))
+    doc_id = doc["doc_id"]
+    ix.invalidate_norm_cache(doc_id)      # _NORM_CACHE is keyed on doc_id, not on the DB
+
+    marker = "zzq_vision_contract_marker"
+
+    # Warm the cache first, so what follows tests invalidation and not a cold read.
+    assert _json(sv.verify_facts(doc_id, [marker]))["results"][0]["verified"] is False
+
+    con = ix.connect()
+    try:
+        page, body = con.execute(
+            "SELECT page, body FROM sheet_text WHERE doc_id=? AND source='pdf' "
+            "AND length(body) > 200 LIMIT 1", (doc_id,)).fetchone()
+    finally:
+        con.close()
+
+    sv.record_vision_reading(doc_id, str(page), f"{marker} read off a rendered tile")
+    after = _json(sv.verify_facts(doc_id, [marker]))["results"][0]
+
+    # BUG-02: the write must be visible to the tool that gates on it.
+    assert after["verified"] is True, after
+    # SEC-03: ...and must not be indistinguishable from the document's own text.
+    assert after["verified_by"] == "vision_reading", after
+    assert "caution" in after, after
+    assert "[drawing]" in after["caution"], after
+
+    # A claim genuinely in the text layer keeps the strong label. Taken from the indexed
+    # body rather than hard-coded, so this does not depend on which set is present.
+    phrase = next((w for w in body.split() if len(w) > 6 and w.isalpha()), None)
+    if phrase:
+        doc_hit = _json(sv.verify_facts(doc_id, [phrase]))["results"][0]
+        assert doc_hit["verified"] is True, doc_hit
+        assert doc_hit["verified_by"] in ("document", "both"), doc_hit
+        assert "caution" not in doc_hit, doc_hit
 
 
 if __name__ == "__main__":

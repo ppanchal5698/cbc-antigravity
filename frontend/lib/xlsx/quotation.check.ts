@@ -18,7 +18,8 @@ import {
   taxRateFromLabel,
   type QuotationData,
 } from './quotation.ts';
-import { coerceQuotation, extractJson, readAuditVerdict } from './coerce.ts';
+import { coerceQuotation, extractJson, toEngineAuditInput } from './coerce.ts';
+import { claimedVerdict } from '../../server/engine-audit.ts';
 
 const sample: QuotationData = {
   projectName: 'Baldwin PA Revision 4',
@@ -240,25 +241,57 @@ async function main(): Promise<void> {
     assert.equal(q.doorLines[0].quantitySource === null, false);
   }
 
-  // --- the audit verdict gates the export ----------------------------------
-  // Only an explicit pass writes a workbook. Silence is not consent: the payload that
-  // produced the $107 Dutch Bros quote carried no verdict at all.
-  assert.equal(readAuditVerdict({ auditPassed: true, auditFailures: [] }).passed, true);
-  assert.equal(readAuditVerdict({ audit_passed: true, audit_failures: [] }).passed, true,
+  // --- the verdict is the engine's, and the model's claim is only a claim --------
+  // The worker used to export on the strength of `auditPassed` in the model's own JSON.
+  // It now runs format_cbc_proposal itself (server/engine-audit.ts); this flag is kept
+  // only so a disagreement can be reported. Silence is still not consent.
+  assert.equal(claimedVerdict({ auditPassed: true }).claimedPass, true);
+  assert.equal(claimedVerdict({ audit_passed: true }).claimedPass, true,
     'snake_case comes straight off the Python engine');
-  assert.equal(readAuditVerdict({}).passed, false, 'no verdict must not export');
-  assert.equal(readAuditVerdict(null).passed, false);
-  assert.equal(readAuditVerdict({ auditPassed: 'yes' }).passed, false, 'only true is true');
-  assert.equal(
-    readAuditVerdict({ auditPassed: true, auditFailures: [{ line: '01', problem: 'x' }] }).passed,
-    false,
-    'a failure list outranks a pass flag',
-  );
-  assert.ok(readAuditVerdict({}).failures[0].includes('no audit verdict'));
+  assert.equal(claimedVerdict({}).claimedPass, false, 'no verdict is not a pass');
+  assert.equal(claimedVerdict(null).claimedPass, false);
+  assert.equal(claimedVerdict({ auditPassed: 'yes' }).claimedPass, false, 'only true is true');
+
+  // --- what reaches the engine ---------------------------------------------
+  // The audit checks fields the workbook never renders. If the mapping drops one, the
+  // engine cannot see the defect it exists to catch, and the package passes for a reason
+  // that is not the real one.
+  const audited = toEngineAuditInput({
+    projectState: 'VA (0.0% Sales Tax - Supply-Only)',
+    doorLines: [{
+      tag: '01', qty: 2, unitSale: 100, description: '3ft-6in HM door, Hardware Group 1',
+      costSource: 'catalog_list_x_multiplier', costSourceDetail: 'Pemko 2026 p13',
+      quantitySource: 'schedule:A2.2 row 01', sizeSource: 'schedule:A2.2',
+      hardwareGroup: 'GROUP 1', assemblyAccounted: true,
+      specifiedManufacturer: 'MARLITE', manufacturer: 'NUDO', substitutionNotes: 'approved equal',
+      components: [{ component: 'Threshold', extSale: 32.19 },
+                   { component: 'Closer', exclusion: '[not carried on shelf]' }],
+    }],
+    alternates: [{ name: 'Alt 1', lines: [{ tag: 'ALT-01', qty: 1, unitSale: 50 }] }],
+  });
+  assert.equal(audited.state, 'VA', 'the engine reads a state code, not a human sentence');
+  const line = audited.doorLines[0]!;
+  assert.equal(line.cost_source, 'catalog_list_x_multiplier');
+  assert.equal(line.ext_sale, 200, 'ext_sale is unitSale x qty - the engine audits extensions');
+  assert.equal(line.hardware_group, 'GROUP 1');
+  assert.equal(line.assembly_accounted, true);
+  assert.equal(line.substitution_note, 'approved equal');
+  assert.equal((line.components as unknown[]).length, 2);
+  assert.equal(audited.alternates[0]!.lines.length, 1, 'alternates are audited too');
+
+  // A display-only costBasis still yields a usable cost_source rather than a sentence.
+  const legacy = toEngineAuditInput({
+    doorLines: [{ tag: '01', qty: 1, unitSale: 1, costBasis: 'p21_last_po (PO 88213)' }],
+  });
+  assert.equal(legacy.doorLines[0]!.cost_source, 'p21_last_po');
+
+  // An unread state must arrive empty so the engine fails the package, rather than
+  // arriving as something that looks like a state. A wrong zero is still a wrong number.
+  assert.equal(toEngineAuditInput({ projectState: '' }).state, '');
 
   // The gate and the run's output contract have to agree. `schema.json` is passed to agy
-  // as --json-schema with additionalProperties:false, so a verdict field the schema does
-  // not declare is one the model is structurally unable to emit - and every run then fails
+  // as --json-schema with additionalProperties:false, so a field the schema does not
+  // declare is one the model is structurally unable to emit - and every run then fails
   // the gate for a plumbing reason instead of a quality one. That shipped once.
   const runSchema = JSON.parse(
     await readFile(new URL('./schema.json', import.meta.url), 'utf8'),
@@ -269,17 +302,14 @@ async function main(): Promise<void> {
   }
   assert.ok(runSchema.$defs.auditFailure, 'auditFailures needs an item shape to be readable');
 
-  const held = readAuditVerdict({
-    auditPassed: false,
-    auditFailures: [{
-      line: '01', block: 'doors',
-      problem: 'hardware group GROUP 1 has 9 components, 1 accounted, 8 neither priced nor excluded',
-      fix: 'Price each, or tag it [not carried on shelf].',
-    }],
-  });
-  assert.equal(held.passed, false);
-  assert.match(held.failures[0], /\[01\].*9 components.*→ Price each/,
-    'a failure must arrive readable enough to act on');
+  // Every field the engine audits must be declarable, or the model cannot supply it and
+  // the re-run fails on plumbing again - this time on the checks that matter most.
+  const lineProps = (runSchema.$defs.line as { properties: Record<string, unknown> }).properties;
+  for (const field of ['costSource', 'costSourceDetail', 'quantitySource', 'sizeSource',
+                       'hardwareGroup', 'components', 'assemblyAccounted',
+                       'specifiedManufacturer', 'manufacturer', 'substitutionNotes']) {
+    assert.ok(lineProps[field], `schema.json line must declare ${field} for the engine audit`);
+  }
 
   console.log('xlsx template check passed');
 }

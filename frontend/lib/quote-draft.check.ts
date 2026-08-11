@@ -7,7 +7,11 @@
  * guarded by SQL and exercised end to end, not here - this file needs no Postgres.
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { quotationFromDraft, type QuoteDraftRow, type QuoteLineRow } from './quote-draft.ts';
+import { appendCorrection, correctionFrom } from './corrections.ts';
 
 const HEADER = {
   projectName: 'Baldwin PA',
@@ -139,5 +143,63 @@ const unsourced = quotationFromDraft(draft, [
   line({ section: 'door', tag: 'D10', acceptance: 'accepted', quantity_source: null }),
 ]);
 assert.equal(unsourced.doorLines[0].quantitySource, null);
+
+// --- estimator corrections become learnable records -------------------------
+// FR-13 and the Phase 5 gate: an override is appended to corrections.jsonl and ingested
+// into the graph. Neither happened - the review screen wrote to Postgres and stopped, so
+// `learning_cycles_completed` sat at 0 and the log held only its seeded row.
+{
+  const row = { tag: '101', description: 'Hager BB1279 4.5x4.5', section: 'door' };
+
+  const swap = correctionFrom(row, { description: 'Hager BB1191 4.5x4.5 NRP' }, 'Baldwin PA');
+  assert.ok(swap, 'changing what a line IS is a correction');
+  assert.equal(swap.specified_callout, '101');
+  assert.equal(swap.copilot_initial_match, 'Hager BB1279 4.5x4.5');
+  assert.equal(swap.estimator_override, 'Hager BB1191 4.5x4.5 NRP');
+  assert.equal(swap.division, '08');
+  assert.equal(correctionFrom({ ...row, section: 'accessory' }, { description: 'x' }, 'p')!.division, '10');
+  assert.equal(correctionFrom({ ...row, section: 'frp' }, { description: 'x' }, 'p')!.division, '06');
+
+  // A substitution note is the estimator's own stated reason; prefer it over the default.
+  assert.match(
+    correctionFrom(row, { description: 'NUDO LP-F9', substitution_notes: 'Marlite unavailable' }, 'p')!.reason,
+    /Marlite unavailable/,
+  );
+
+  // Not every edit is a correction. A quantity change is already captured by
+  // quantity_source flipping to estimator_confirmed, and a price change belongs in
+  // price_overrides.jsonl. Minting graph patterns off those would let noise outrank a
+  // real override, since confidence is earned by repetition.
+  assert.equal(correctionFrom(row, {}, 'p'), null, 'no description change is not a correction');
+  assert.equal(correctionFrom(row, { description: 'Hager BB1279 4.5x4.5' }, 'p'), null, 'unchanged');
+  assert.equal(correctionFrom(row, { description: '  Hager BB1279 4.5x4.5  ' }, 'p'), null,
+    'whitespace-only difference is not a correction');
+  assert.equal(correctionFrom(row, { description: '   ' }, 'p'), null, 'blanking is not a correction');
+}
+
+// The append is real, against a throwaway file - writing to the real
+// memory/corrections.jsonl from a test would teach the graph from a fixture.
+{
+  const tmp = await mkdtemp(join(tmpdir(), 'cbc-corrections-'));
+  const file = join(tmp, 'corrections.jsonl');
+
+  const one = correctionFrom(
+    { tag: 'PA-51', description: 'Bobrick B-5806', section: 'accessory' },
+    { description: 'Bradley 812' },
+    'Probe',
+  )!;
+  await appendCorrection(one, file);
+  await appendCorrection(one, file);
+
+  const lines = (await readFile(file, 'utf8')).trim().split('\n');
+  assert.equal(lines.length, 2, 'appended, never rewritten');
+  const parsed = JSON.parse(lines[0]!) as Record<string, unknown>;
+  assert.equal(parsed.estimator_override, 'Bradley 812');
+  assert.equal(parsed.project, 'Probe');
+  assert.ok(typeof parsed.timestamp === 'string' && parsed.timestamp.endsWith('Z'));
+  // Same shape the engine's own jsonl test asserts: one object per line, no trailing junk.
+  for (const l of lines) JSON.parse(l);
+  await rm(tmp, { recursive: true, force: true });
+}
 
 console.log('quote draft check passed');

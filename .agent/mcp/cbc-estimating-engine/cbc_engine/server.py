@@ -109,7 +109,7 @@ def calculate_frp_takeoff(
     outside_corners: int = 0,
     wall_height_ft: float = 9.0,
     sheet_width_ft: float = 4.0,
-    waste_pct: float = 10.0,
+    waste_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Calculate Division 06 FRP sheets, trims, rivets, and adhesive from room perimeter."""
     return engine.calculate_frp_takeoff(
@@ -137,14 +137,14 @@ def expand_hardware_set(
 
 
 @mcp.tool()
-def calculate_lite_louver_price(
+def lite_louver_lookup_plan(
     glazing_type: str,
     lite_size: str,
     door_size: str = "3070",
     vendor: str = "NGP",
 ) -> Dict[str, Any]:
     """Get lite/louver pricing lookup instructions for NGP, PEMKO, or Rockwood catalogs (NR-1)."""
-    return engine.calculate_lite_louver_price(
+    return engine.lite_louver_lookup_plan(
         glazing_type=glazing_type, lite_size=lite_size,
         door_size=door_size, vendor=vendor,
     )
@@ -157,10 +157,17 @@ def format_cbc_proposal(
     accessories_lines: List[Dict[str, Any]],
     frp_lines: Optional[List[Dict[str, Any]]] = None,
     alternates_lines: Optional[List[Dict[str, Any]]] = None,
-    state: str = "OH",
+    state: Optional[str] = None,
     sales_tax_rate: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Assemble Phase 6 draft proposal with subtotals, tax (OH/KY), and DRAFT status for estimator review."""
+    """Assemble Phase 6 draft proposal with subtotals, tax (OH/KY), and DRAFT status for estimator review.
+
+    `state` has NO default, and must not be given one here. It defaulted to "OH" in this
+    wrapper long after `engine.format_cbc_proposal` had removed its own default, so every
+    call that omitted it taxed the job at Ohio's 8% AND skipped the audit failure that says
+    the state was never read. Read it off the cover sheet title block - the SITE address,
+    not the franchisor's or architect's office sitting beside it.
+    """
     return engine.format_cbc_proposal(
         project_name=project_name, door_lines=door_lines,
         accessories_lines=accessories_lines, frp_lines=frp_lines,

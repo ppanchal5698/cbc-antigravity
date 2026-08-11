@@ -48,9 +48,20 @@ not carry it."** On this shelf that would wrongly write off Rockwood's
 architectural pulls (finish-matrix pricing), National Guard's thresholds
 (priced per foot by formula), NUDO's FRP panels and World Dryer's dryers.
 
-`catalog-intelligence` reads **PDF only**. Spreadsheets and .msg files in
-`catalogs/` are not indexed — World Dryer's real price list is one of them.
-If the answer needs one, say it must be opened by hand.
+`catalog-intelligence` indexes **PDF and `.xlsx` / `.xlsm`**. A spreadsheet price
+list is parsed into the same product rows a PDF yields — World Dryer's real book
+and Hamilton Parker's own net-cost sheets are indexed, not invisible.
+
+Spreadsheets are where the shelf's *net* pricing lives, so read `price_basis` on
+every row from one. A distributor sheet prints LIST, DEALER, COMMERCIAL, MAP and
+NET side by side, and each becomes its own row carrying its own basis; a row
+whose `already_net` is true is a cost, and applying a vendor multiplier to it
+under-prices the job.
+
+Still not readable: **`.xls`** (the old binary format), **`.docx`** and
+**`.msg`** — `BOBRICK/Gamco Cross over (2).xls`, `BOBRICK/Multiplier.docx` and
+`NUDO/FW Pricing Sheets…msg`. If the answer needs one of those, say it must be
+opened by hand.
 
 ## The two documents never mix
 
@@ -177,7 +188,7 @@ attribute.
 - **[catalog-page]** — read by you off `get_page` text rows because that
   section or catalog is not parsed; less certain than a price row, say so
 - **[not carried]** — no vendor on this shelf sells it
-- **[not indexed]** — it may exist in a spreadsheet or .msg on the shelf that
+- **[not indexed]** — it may exist in an `.xls`, `.docx` or `.msg` on the shelf that
   the server cannot read
 - **[not stated]** — the plan set does not say
 

@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 /** Clear the Antigravity OAuth token in the agent container. */
 export async function POST(): Promise<Response> {
   try {
-    const response = await fetch(`${GATEWAY_URL}/auth/logout`, {
+    const response = await gatewayFetch(`/auth/logout`, {
       method: 'POST',
       signal: AbortSignal.timeout(10_000),
     });

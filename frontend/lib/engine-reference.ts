@@ -1,4 +1,4 @@
-import { GATEWAY_URL } from './gateway';
+import { gatewayFetch, GATEWAY_URL } from './gateway';
 
 /**
  * Vendor multipliers and margin bands, fetched from the gateway (which reads
@@ -33,7 +33,7 @@ let cache: { at: number; value: EngineReference } | null = null;
 export async function getEngineReference(): Promise<EngineReference | null> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.value;
   try {
-    const response = await fetch(`${GATEWAY_URL}/engine/reference`, { cache: 'no-store' });
+    const response = await gatewayFetch(`/engine/reference`, { cache: 'no-store' });
     if (!response.ok) return cache?.value ?? null;
     const value = (await response.json()) as EngineReference;
     cache = { at: Date.now(), value };

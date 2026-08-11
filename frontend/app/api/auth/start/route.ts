@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 /** Start (or reuse) the PTY OAuth broker and return the Google authorization URL. */
 export async function POST(): Promise<Response> {
   try {
-    const response = await fetch(`${GATEWAY_URL}/auth/start`, {
+    const response = await gatewayFetch(`/auth/start`, {
       method: 'POST',
       // Broker may wait up to ~90s for the URL.
       signal: AbortSignal.timeout(120_000),

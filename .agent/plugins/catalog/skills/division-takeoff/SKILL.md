@@ -154,8 +154,8 @@ Sort every requirement line into exactly one:
    different manufacturer. Say so explicitly: specified product, proposed
    substitute, vendor, and that substitution normally requires approval.
 4. **Not carried** — no vendor on this shelf. Name the item and division. This
-   is a real deliverable, not a failure. Add **[not indexed]** if it might be in
-   one of the spreadsheets the server cannot read.
+   is a real deliverable, not a failure. Add **[not indexed]** only if it might
+   be in an `.xls`, `.docx` or `.msg` — spreadsheets in `.xlsx` are indexed.
 5. **Unresolved** — the drawings do not state enough to pick a product (no
    finish, no size, an undefined hardware group). Say what is missing and who
    has to answer it.
@@ -190,8 +190,8 @@ Rules for the table:
 - not-carried and unresolved items appear in the answer, not in a footnote
 
 Close with what you could not confirm: `partial` / `text_only` catalogs not read
-page by page, spreadsheets the server cannot open, drawings that do not state a
-finish, hardware groups with no definition.
+page by page, the `.xls` / `.docx` / `.msg` files the server cannot open,
+drawings that do not state a finish, hardware groups with no definition.
 
 **A short takeoff that is entirely correct beats a comprehensive one that is 85%
 correct.** On construction documents the 15% is what costs money.

@@ -179,7 +179,7 @@ def get_sheet(doc_id: str, sheet: str) -> str:
         try:
             pg = doc[page - 1]
             rows = ix.layout_rows(pg)
-            n_tables = len(ix.page_tables(pg))
+            n_tables = len(ix.cached_page_tables(doc_id, page, pg))
         finally:
             doc.close()
 
@@ -235,7 +235,8 @@ def read_schedule(doc_id: str, sheet: str, region: str = "") -> str:
                     clip = fitz.Rect(x0, y0, x1, y1)
                 except ValueError:
                     return json.dumps({"error": "region must be 'x0,y0,x1,y1' in inches"})
-            tables = ix.page_tables(page, clip)
+            tables = (ix.page_tables(page, clip) if clip is not None
+                      else ix.cached_page_tables(doc_id, page_no, page))
             return json.dumps({
                 "page": page_no,
                 "tables_found": len(tables),
@@ -320,7 +321,36 @@ def verify_facts(doc_id: str, claims: list[str]) -> str:
                 continue
             hits = [{"page": p, "sheet": meta.get(p, (None, None))[0], "found_in": src}
                     for p, src, b in blobs if q in b]
-            entry = {"claim": claim, "verified": bool(hits), "found_on": hits[:6]}
+
+            # WHERE a claim was found decides what it is worth, and the two are not the
+            # same kind of evidence. `pdf` is text this document carries. Anything else
+            # was written by `record_vision_reading` - a model's transcription of a
+            # rendered tile, saved back into the index.
+            #
+            # That still verifies, and must: on a sheet whose text was outlined to vectors
+            # it is the ONLY evidence that can ever exist, and reporting it as unverified
+            # would have the rules order a correctly-read fact deleted. What it cannot do
+            # is corroborate the reader who wrote it. A hallucinated model number recorded
+            # during a vision pass used to come back indistinguishable from one printed in
+            # the document, and stayed that way for the life of the index.
+            from_doc = [h for h in hits if h["found_in"] == "pdf"]
+            from_vision = [h for h in hits if h["found_in"] != "pdf"]
+            entry = {
+                "claim": claim,
+                "verified": bool(hits),
+                "verified_by": ("both" if from_doc and from_vision else
+                                "document" if from_doc else
+                                "vision_reading" if from_vision else "nothing"),
+                "found_on": hits[:6],
+            }
+            if from_vision and not from_doc:
+                entry["caution"] = (
+                    "Found ONLY in a vision reading - text a model wrote back after "
+                    "looking at a rendered tile, not text this document carries. On a "
+                    "sheet with no text layer that is the best evidence available and it "
+                    "stands, but it is not independent of the reader: it cannot be the "
+                    "sole support for a model number, dimension, finish or price. Cite it "
+                    "[drawing], never [schedule], and say it was read by eye.")
             if not hits:
                 toks = [t for t in q.split() if len(t) > 2]
                 near = []
@@ -338,12 +368,22 @@ def verify_facts(doc_id: str, claims: list[str]) -> str:
                                    "document's exact wording, or drop the claim.")
             results.append(entry)
         bad = [r["claim"] for r in results if not r["verified"]]
-        return json.dumps({
+        vision_only = [r["claim"] for r in results if r["verified_by"] == "vision_reading"]
+        out = {
             "checked": len(results),
             "verified": len(results) - len(bad),
             "unverified": bad,
+            "verified_only_by_vision_reading": vision_only,
             "results": results,
-        }, indent=2)
+        }
+        if vision_only:
+            out["note"] = (
+                f"{len(vision_only)} claim(s) are supported only by what a vision pass "
+                "wrote back, not by text this document carries. That is legitimate for an "
+                "outlined sheet and is how a vision-only sheet is ever quoted at all - but "
+                "tag those facts [drawing], not [schedule], and do not let one stand alone "
+                "behind a model number or a price.")
+        return json.dumps(out, indent=2)
     finally:
         con.close()
 
@@ -527,7 +567,8 @@ def find_schedule(doc_id: str, kind: str = "door", read_tables: bool = True) -> 
             try:
                 for cand in ranked[:MAX_SCHEDULE_CANDIDATES]:
                     t0 = time.time()
-                    tables = ix.page_tables(doc[cand["page"] - 1])
+                    tables = ix.cached_page_tables(
+                        doc_id, cand["page"], doc[cand["page"] - 1])
                     cand["tables"] = tables
                     cand["tables_found"] = len(tables)
                     # One pathological sheet must not hang a takeoff. Later candidates
@@ -686,6 +727,10 @@ def record_vision_reading(doc_id: str, sheet: str, text: str, tile: str = "") ->
         con.execute("UPDATE sheets SET vision_need='none', vision_status='recorded' "
                     "WHERE doc_id=? AND page=?", (doc_id, page))
         con.commit()
+        # This document's text just changed without its file changing, so verify_facts'
+        # normalized cache is now a pre-vision snapshot. Drop it, or the very claims this
+        # reading was taken to confirm come back verified: false.
+        ix.invalidate_norm_cache(doc_id)
         return json.dumps({"page": page, "recorded_chars": len(text),
                            "sheet_no_set": found, "vision_need": "none",
                            "vision_status": "recorded"})

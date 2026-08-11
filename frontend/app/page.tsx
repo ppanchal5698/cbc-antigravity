@@ -314,7 +314,34 @@ export default async function OverviewPage() {
       </Section>
 
       {active ? (
-        <Section label="Agent job record" aside={`Phase ${active.phaseCompleted} of 6`}>
+        <Section
+          label="Agent job record"
+          aside={
+            active.gateGapsAtPhase6.length
+              ? `Phase ${active.phaseCompleted} of 6 — claimed`
+              : `Phase ${active.phaseCompleted} of 6`
+          }
+        >
+          {/* The phase is a number the agent wrote. Where its exit gate leaves artifacts
+              behind, we can check, and the record has been wrong: it claimed Phase 6 with
+              nothing archived and no learning pass run. Say so next to the claim. */}
+          {active.gateGapsAtPhase6.length ? (
+            <div className="panel border-alert/40 mb-3 p-4">
+              <p className="text-[13px] font-medium">
+                This record claims Phase {active.phaseCompleted}, but the Phase 6 exit gate is
+                not met:
+              </p>
+              <ul className="text-ink-muted mt-2 list-disc space-y-1 pl-5 text-[12px]">
+                {active.gateGapsAtPhase6.map((gap) => (
+                  <li key={gap}>{gap}</li>
+                ))}
+              </ul>
+              <p className="text-ink-muted mt-2 text-[12px]">
+                The subtotals below may still be correct — what did not happen is the archive
+                and the learning pass that close the phase.
+              </p>
+            </div>
+          ) : null}
           <div className="panel p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
               <p className="text-[15px] font-medium">{active.projectName}</p>
