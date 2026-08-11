@@ -807,6 +807,30 @@ class TestDutchBrosUnderScoping(unittest.TestCase):
         self.assertTrue(any("substitution_note" in f["problem"]
                             for f in res["audit_failures"]))
 
+    def test_graph_metadata_counts_are_recomputed_on_load(self):
+        """These are written by save(), so a seeded or hand-edited file reports whatever it
+        was last told. graph.json claimed 33 nodes while carrying 35."""
+        import tempfile
+        from cbc_engine import okf as _okf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "graph.json"
+            path.write_text(json.dumps({
+                "metadata": {"total_nodes": 999, "total_edges": 999},
+                "nodes": [
+                    {"id": "brand:x", "class": "BrandAccount", "name": "X"},
+                    {"id": "hw_set:y", "class": "HardwareSetTemplate", "name": "Y",
+                     "category": "commodity"},
+                ],
+                "edges": [{"source": "brand:x", "target": "hw_set:y",
+                           "type": "PREFERS_HARDWARE_SET"}],
+            }), encoding="utf-8")
+
+            g = _okf.OKFKnowledgeGraph(graph_path=path)
+            self.assertEqual(g.metadata["total_nodes"], 2)
+            self.assertEqual(g.metadata["total_edges"], 1)
+            self.assertEqual(g.validation_errors, [])
+
     def test_allegion_brands_route_to_the_wholesaler_not_an_rfq(self):
         """A drawing writes "LCN 4040XP", never "Banner Solutions". Looking the line up by
         the name on the schedule fell through to VENDOR_RFQ_REQUIRED - step 4 of the cost

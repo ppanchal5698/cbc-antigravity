@@ -123,6 +123,12 @@ class OKFKnowledgeGraph:
             self._index_node(node)
         for edge in data.get("edges", []):
             self._index_edge(edge)
+        # Recount on load, not only on save. These are written by `save()`, so a file that
+        # has been hand-edited - or seeded, as this one was - reports whatever it was last
+        # told: graph.json claimed 33 nodes while carrying 35. Anything reading the
+        # metadata rather than the arrays was reading a number nobody had recomputed.
+        self.metadata["total_nodes"] = len(self.nodes)
+        self.metadata["total_edges"] = sum(len(e) for e in self.outgoing_edges.values())
         self.validation_errors = self.validate()
 
     def _index_node(self, node: Dict[str, Any]) -> None:

@@ -87,7 +87,7 @@ before anything is shown to a person.
 | Need | Vendors | Basis |
 |---|---|---|
 | **10 28 00** washroom accessories | ASI, Bobrick (+Gamco), Bradley | ASI `0.375` list · Bobrick/Gamco `1.0` **net cost each** · Bradley `0.53` list |
-| **10 28 13** hand dryers | ASI (indexed), World Dryer | World Dryer `0.339` list — **price list is `.xlsx`, not indexed; enter cost by hand** |
+| **10 28 13** hand dryers | ASI, World Dryer | World Dryer `0.339` list — the real book is `.xlsx` and **is** indexed; read `price_basis` on its rows |
 | **08 71 00** door hardware | Hager | `0.29` list ('50 & 42' tier, ~75% of volume) |
 | **08 71 00** thresholds, gasketing | Pemko/Markar, National Guard | both `0.45` list — NGP prices per foot by formula, `text_only` |
 | **08 71 00** pulls, plates, protection | Rockwood | `0.55` list — `partial`, finish-matrix pricing needs `get_page` |

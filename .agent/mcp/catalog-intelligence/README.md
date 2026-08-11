@@ -219,7 +219,7 @@ per-foot formula pricing) still index and search; they report `coverage:
 right move only once a specific catalog's pricing matters enough — and the
 "read it with `get_page`" path is honest in the meantime.
 
-**PDF only.** Spreadsheets and .msg files are not indexed.
+**PDF, `.xlsx` and `.xlsm`.** `.xls`, `.docx` and `.msg` are not indexed.
 
 ## Test
 

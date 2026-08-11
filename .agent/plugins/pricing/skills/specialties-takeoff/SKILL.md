@@ -49,10 +49,15 @@ shelf that would wrongly write off NUDO and World Dryer entirely.
 ## 3. Hand dryers
 
 World Dryer is a Level-3 account at `0.339`, but **its actual price list is an `.xlsx` that
-`catalog-intelligence` cannot read** — the indexed PDF is only a pricing memo. Cost has to be
-entered by hand from the spreadsheet. Tag the line `[not indexed]` and say the price came
-from a file that was opened manually. ASI carries dryers too and *is* indexed; Dyson and
-Excel XLERATOR are quoted but not on the shelf.
+`catalog-intelligence` reads** — the PDF beside it is only a pricing memo. Look the model up
+rather than hand-entering it, and read `price_basis` on the row: a spreadsheet prints
+several prices per model and the `0.339` multiplier must not be applied to one already net.
+
+`[not indexed]` is now only for a file the server genuinely cannot open — `.xls`, `.docx`
+or `.msg`. Claiming it for World Dryer hand-enters a price that is already on the shelf.
+
+ASI carries dryers too and is indexed; Dyson and Excel XLERATOR are quoted but not on the
+shelf.
 
 ## 4. Gaps this shelf cannot fill
 

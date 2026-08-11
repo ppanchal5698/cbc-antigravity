@@ -108,7 +108,9 @@ services:
       BACKUP_KEEP: ${BACKUP_KEEP:-24}
     volumes:
       - workspace:/workspace:ro
-      - ./backups:/backups
+      # Defaults inside the checkout, where it is gitignored but still ~600 MB that every
+      # tree walk and grep pays for. BACKUP_DIR moves it out without editing this file.
+      - ${BACKUP_DIR:-./backups}:/backups
     # Folded scalar: every line is indented the same, otherwise YAML keeps the
     # newlines and `sh` sees a line starting with `&&`.
     #

@@ -56,5 +56,7 @@ Uncarried CSI stays `[not carried on shelf — outside RFQ required]`.
 
 ## World Dryer
 
-Its real price list is an `.xlsx` that `catalog-intelligence` cannot read — the indexed PDF
-is only a memo. Cost is entered by hand and the line is tagged `[not indexed]`.
+Its real price list is an `.xlsx`, and `catalog-intelligence` **does** read it — the PDF
+beside it is only a memo. Look the model up rather than hand-entering it, and read
+`price_basis` on the row: a spreadsheet prints several prices per model and the `0.339`
+multiplier must not be applied to one that is already net.

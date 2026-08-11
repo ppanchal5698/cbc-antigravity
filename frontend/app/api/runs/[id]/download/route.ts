@@ -26,7 +26,20 @@ export async function GET(
 
     const disposition =
       new URL(request.url).searchParams.get('disposition') === 'inline' ? 'inline' : 'attachment';
-    const name = basename(run.output_path).replace(/"/g, '');
+
+    // A pre-approval draft and an approved quote are written to the SAME path, so once
+    // downloaded they were indistinguishable on an estimator's disk - same filename, same
+    // CBC template, and only a status cell inside to tell them apart. The download stays
+    // available before approval (reviewing in Excel is real work), but it says what it is.
+    const approved = await query<{ status: string }>(
+      'SELECT status FROM quote_drafts WHERE run_id = $1',
+      [id],
+    )
+      .then((rows) => rows[0]?.status === 'approved')
+      .catch(() => false);
+
+    const base = basename(run.output_path).replace(/"/g, '');
+    const name = approved ? base : `DRAFT_${base}`;
 
     const buffer = await readFile(run.output_path);
     return new Response(new Uint8Array(buffer), {
