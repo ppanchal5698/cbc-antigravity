@@ -63,29 +63,45 @@ paths without disturbing the Windows paths your Antigravity IDE still uses.
 
 ### Exposure
 
-**Nothing in this stack authenticates.** Every published port binds to
-`127.0.0.1` by default, and that is doing real work, not tidying:
+Every published port binds to `127.0.0.1` by default, and the gateway requires a
+shared secret the moment it does not. Both matter, because of what is behind
+them:
 
-- The UI has **no login**. Whoever reaches `:3000` can approve a draft quote,
-  download a workbook, delete chat history and queue estimates.
 - `POST :8787/chat` spawns `agy` with `--dangerously-skip-permissions`, holding
   the gateway's environment, read-write on the whole workspace, for up to
   `AGY_TIMEOUT`. `POST :8787/auth/logout` deletes the OAuth token.
+- The UI has **no login**. Whoever reaches `:3000` can approve a draft quote,
+  download a workbook, delete chat history and queue estimates.
 - The domain gate in front of chat is a **scope classifier**, not an access
   control. It decides whether a message is CBC estimating work — not whether the
   sender is entitled to ask.
-- `POSTGRES_PASSWORD` is required. It used to default to `cbc`, which put a known
-  password on a published port.
 
-`BIND_ADDR` overrides the interface. Set it to `0.0.0.0` **only** behind
-something that authenticates — a reverse proxy with SSO, or a network you
-already trust that far. Estimators working from other machines need one of
-those, not a wider bind.
+**The rule is: exposure requires a token.**
 
-This is the open half of NFR-4 (*"drawings, pricing and customer data remain in
-an approved, access-controlled environment"*), which `docs/requirements.md`
-records as still needing a named owner. Loopback is the safe default until that
-answer exists; it is not the answer.
+| `BIND_ADDR` | `GATEWAY_TOKEN` | Result |
+|---|---|---|
+| `127.0.0.1` (default) | unset | Runs. The OS is the boundary. |
+| `127.0.0.1` | set | Runs, and the token is enforced on every route. |
+| anything else | unset | **Refuses to start**, with the reason. |
+| anything else | set | Runs, token enforced. |
+
+The gateway fails at boot rather than serving, because a secret that defaults to
+"off" fails open exactly when someone widens the bind — which is the moment it
+starts mattering. The token is enforced on `/health` too: an open health
+endpoint is a free confirmation that the port is a CBC gateway, and it reports
+the workspace path and sign-in state with it.
+
+`GATEWAY_TOKEN` is a shared secret between the web app and the gateway, not a
+user login. It distinguishes *the Quote Desk* from *anything else that can reach
+the port*. Per-user authentication and an audit trail of who approved which
+quote are still open — that is NFR-4 (*"drawings, pricing and customer data
+remain in an approved, access-controlled environment"*), which
+`docs/requirements.md` records as still needing a named owner. If your
+environment already fronts this with SSO, that proxy is the answer and this
+token is belt-and-braces.
+
+`POSTGRES_PASSWORD` is likewise required, with no default. It used to fall back
+to `cbc`, which put a known password on a published port.
 
 Scale the workers with `docker compose up -d --scale agent=3`; runs are claimed
 with `FOR UPDATE SKIP LOCKED`, so replicas need no coordination.

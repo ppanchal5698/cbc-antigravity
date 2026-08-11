@@ -228,13 +228,15 @@ def main() -> None:
                             fh.write(url)
                         url_done = True
                         status("url-ready")
-                if not code_sent and os.path.exists(code_p):
-                    with open(code_p, "rb") as fh:
-                        code = fh.read().strip()
-                    if code:
-                        os.write(fd, code + b"\r")
-                        code_sent = True
-                        status("code-sent")
+            # Code file is written by the gateway while the TUI is idle at the
+            # paste prompt — check every loop, not only when PTY has output.
+            if not code_sent and os.path.exists(code_p):
+                with open(code_p, "rb") as fh:
+                    code = fh.read().strip()
+                if code:
+                    os.write(fd, code + b"\r")
+                    code_sent = True
+                    status("code-sent")
             if time.time() - start > 1200:
                 break
     finally:

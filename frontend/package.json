@@ -12,13 +12,14 @@
     "gateway": "node server/index.ts",
     "check:xlsx": "node lib/xlsx/quotation.check.ts",
     "check:events": "node server/events.check.ts",
-    "check": "npm run check:events && npm run check:xlsx && npm run check:citations && npm run check:quote-draft && npm run check:chat-scopes && npm run check:gatekeeper && npm run check:mail-intake",
+    "check": "npm run check:events && npm run check:xlsx && npm run check:citations && npm run check:quote-draft && npm run check:chat-scopes && npm run check:gatekeeper && npm run check:mail-intake && npm run check:auth",
     "check:citations": "node lib/citations.check.ts",
     "check:quote-draft": "node lib/quote-draft.check.ts",
     "check:chat-scopes": "node lib/chat-scopes.check.ts",
     "check:gatekeeper": "node lib/gatekeeper.check.ts",
     "check:mail-intake": "node server/mail-intake-gate.check.ts",
-    "mail:restore-unread": "node server/mail-restore-unread.ts"
+    "mail:restore-unread": "node server/mail-restore-unread.ts",
+    "check:auth": "node server/auth.check.ts"
   },
   "dependencies": {
     "@mertdeveci55/univer-import-export": "^0.2.1",

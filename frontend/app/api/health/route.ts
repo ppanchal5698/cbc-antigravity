@@ -1,4 +1,4 @@
-import { GATEWAY_URL } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 /** Liveness of the Antigravity gateway, for the status dot in the top nav. */
 export async function GET(): Promise<Response> {
   try {
-    const response = await fetch(`${GATEWAY_URL}/health`, {
+    const response = await gatewayFetch(`/health`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(4000),
     });

@@ -1,4 +1,4 @@
-import { GATEWAY_URL } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 /** Antigravity OAuth status (token file + in-flight broker session). */
 export async function GET(): Promise<Response> {
   try {
-    const response = await fetch(`${GATEWAY_URL}/auth/status`, {
+    const response = await gatewayFetch(`/auth/status`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(8000),
     });

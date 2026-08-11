@@ -1,4 +1,4 @@
-import { GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
+import { gatewayFetch, GATEWAY_URL, gatewayUnreachable } from '@/lib/gateway';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -8,8 +8,7 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const qs = url.searchParams.toString();
   try {
-    const upstream = await fetch(
-      `${GATEWAY_URL}/chat/sessions${qs ? `?${qs}` : ''}`,
+    const upstream = await gatewayFetch(`/chat/sessions${qs ? `?${qs}` : ''}`,
       { signal: request.signal, cache: 'no-store' },
     );
     const body = await upstream.text();

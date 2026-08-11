@@ -42,6 +42,10 @@ services:
       AGY_EFFORT: ${AGY_EFFORT:-}
       AGY_TIMEOUT: ${AGY_TIMEOUT:-30m}
       AGENT_PORT: 8787
+      # Required whenever BIND_ADDR reaches beyond loopback; the gateway refuses to
+      # start without it rather than listening unauthenticated on a network.
+      BIND_ADDR: ${BIND_ADDR:-127.0.0.1}
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:-}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       KEYRING_PASSWORD: ${KEYRING_PASSWORD:-}
       # Email intake. Off unless INTAKE_ENABLED is set; see .env.example for the
@@ -86,6 +90,8 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-cbc}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - there is no default}@db:5432/${POSTGRES_DB:-cbc}
       AGENT_URL: http://agent:8787
+      # The web app is the only authorised client; it proxies with this token.
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:-}
       WORKSPACE_ROOT: /workspace
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
     volumes:
