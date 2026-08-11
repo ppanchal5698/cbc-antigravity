@@ -1,6 +1,7 @@
 /**
  * Persistable FR-9 quote drafts. The workbook is regenerated from these rows.
  */
+import { writeFile } from 'node:fs/promises';
 import { query, withTransaction } from './db.ts';
 import { recordCorrection } from './corrections.ts';
 import {
@@ -269,6 +270,40 @@ export async function regenerateWorkbook(
 ): Promise<void> {
   const quotation = quotationFromDraft(draft, lines, opts);
   await buildQuotationWorkbook(quotation).xlsx.writeFile(outputPath);
+}
+
+/** The `.pdf` beside a run's `.xlsx`. Same stem, so the pair is obviously a pair. */
+export function pdfPathFor(workbookPath: string): string {
+  return workbookPath.replace(/\.xlsx$/i, '') + '.pdf';
+}
+
+/**
+ * FR-10: the approved quote in the customer-facing format.
+ *
+ * Rendered from the same `QuotationData` as the workbook, in the same call, so the two can
+ * never describe different totals. Failure is reported, not swallowed — but it does not
+ * roll back the approval, because the workbook is already written and the draft is already
+ * locked; re-approving to retry would be refused as a replay.
+ */
+export async function regenerateQuoteDocuments(
+  workbookPath: string,
+  draft: QuoteDraftRow,
+  lines: QuoteLineRow[],
+  opts: { acceptedOnly?: boolean } = {},
+): Promise<{ workbookPath: string; pdfPath: string | null; pdfError: string | null }> {
+  const quotation = quotationFromDraft(draft, lines, opts);
+  await buildQuotationWorkbook(quotation).xlsx.writeFile(workbookPath);
+
+  const pdfPath = pdfPathFor(workbookPath);
+  try {
+    const { buildQuotationPdf } = await import('./pdf/quotation-pdf.ts');
+    await writeFile(pdfPath, await buildQuotationPdf(quotation));
+    return { workbookPath, pdfPath, pdfError: null };
+  } catch (err) {
+    const pdfError = err instanceof Error ? err.message : String(err);
+    console.error('[quote] PDF render failed:', pdfError);
+    return { workbookPath, pdfPath: null, pdfError };
+  }
 }
 
 export type LinePatch = {

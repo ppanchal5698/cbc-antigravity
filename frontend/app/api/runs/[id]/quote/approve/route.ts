@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { join } from 'node:path';
 import { query } from '@/lib/db';
-import { getDraftByRunId, markDraftApproved, regenerateWorkbook } from '@/lib/quote-draft';
+import { getDraftByRunId, markDraftApproved, regenerateQuoteDocuments } from '@/lib/quote-draft';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -70,7 +70,8 @@ export async function POST(
     const outputPath =
       run.output_path || join(run.folder_path, `CBC_Material_Quotation_${run.slug}.xlsx`);
 
-    await regenerateWorkbook(outputPath, approvedDraft, payload.lines, {
+    // FR-10: the workbook AND the customer-facing PDF, from one QuotationData.
+    const emitted = await regenerateQuoteDocuments(outputPath, approvedDraft, payload.lines, {
       acceptedOnly: true,
     });
 
@@ -79,6 +80,8 @@ export async function POST(
     return NextResponse.json({
       draft: approvedDraft,
       downloadUrl: `/api/runs/${id}/download`,
+      pdfUrl: emitted.pdfPath ? `/api/runs/${id}/download?format=pdf` : null,
+      pdfError: emitted.pdfError,
     });
   } catch (err) {
     return NextResponse.json(

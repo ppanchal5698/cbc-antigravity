@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { query } from '@/lib/db';
+import { pdfPathFor } from '@/lib/quote-draft';
 import type { WorkflowRun } from '@/types/events';
 
 export const dynamic = 'force-dynamic';
@@ -38,13 +39,32 @@ export async function GET(
       .then((rows) => rows[0]?.status === 'approved')
       .catch(() => false);
 
-    const base = basename(run.output_path).replace(/"/g, '');
+    // FR-10. The PDF is the customer-facing format and only exists once approved, so it
+    // is requested explicitly rather than sniffed - a caller asking for it before it has
+    // been generated should get a clear 404, not a silent spreadsheet.
+    const wantsPdf = new URL(request.url).searchParams.get('format') === 'pdf';
+    const sourcePath = wantsPdf ? pdfPathFor(run.output_path) : run.output_path;
+
+    const base = basename(sourcePath).replace(/"/g, '');
     const name = approved ? base : `DRAFT_${base}`;
 
-    const buffer = await readFile(run.output_path);
+    let buffer: Buffer;
+    try {
+      buffer = await readFile(sourcePath);
+    } catch {
+      return Response.json(
+        {
+          error: wantsPdf
+            ? 'No PDF for this run. The customer-facing PDF is written when the draft is approved.'
+            : 'No estimate available for this run',
+        },
+        { status: 404 },
+      );
+    }
+
     return new Response(new Uint8Array(buffer), {
       headers: {
-        'Content-Type': XLSX_MIME,
+        'Content-Type': wantsPdf ? 'application/pdf' : XLSX_MIME,
         'Content-Disposition': `${disposition}; filename="${name}"`,
         'Content-Length': String(buffer.byteLength),
         'Cache-Control': 'no-store',

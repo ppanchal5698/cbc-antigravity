@@ -17,7 +17,7 @@ import type {
   QuoteSection,
 } from '@/lib/quote-draft';
 
-type Filter = 'all' | 'pending' | 'low' | 'manual';
+type Filter = 'all' | 'pending' | 'low' | 'manual' | 'rfq';
 
 const SECTION_TABS: { id: QuoteSection; label: string }[] = [
   { id: 'door', label: 'Doors' },
@@ -116,11 +116,51 @@ function LineEditor({
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState(() => toLocal(line));
 
+  const [freshBusy, setFreshBusy] = useState(false);
+  const [freshness, setFreshness] = useState<{
+    status: string;
+    usable: boolean;
+    guidance: string;
+    costDate: string | null;
+  } | null>(null);
+
   const [shownId, setShownId] = useState(line.id);
   if (shownId !== line.id) {
     setShownId(line.id);
     setLocal(toLocal(line));
+    setFreshness(null);
   }
+
+  /** NR-2. Asks the engine how old this cost is; never changes the cost itself. */
+  const recheckFreshness = async () => {
+    if (freshBusy) return;
+    setFreshBusy(true);
+    try {
+      const response = await fetch(`/api/quote-lines/${line.id}/freshness`, { method: 'POST' });
+      const body = (await response.json()) as {
+        status?: string;
+        usable?: boolean;
+        guidance?: string;
+        costDate?: string | null;
+        error?: string;
+      };
+      setFreshness({
+        status: body.status ?? 'unknown',
+        usable: body.usable === true,
+        guidance: body.error ?? body.guidance ?? '',
+        costDate: body.costDate ?? null,
+      });
+    } catch (err) {
+      setFreshness({
+        status: 'unknown',
+        usable: false,
+        guidance: err instanceof Error ? err.message : String(err),
+        costDate: null,
+      });
+    } finally {
+      setFreshBusy(false);
+    }
+  };
 
   const save = async (extra?: Record<string, unknown>) => {
     if (disabled || busy) return;
@@ -412,6 +452,34 @@ function LineEditor({
               <Provenance label="Size" value={line.size_source} optional />
             </div>
           </div>
+          {/* NR-2: "price may be out of date - refresh". The freshness column used to be
+              whatever the model asserted; this asks the engine, which is the only thing
+              that knows CBC's rule (under a year good, 1-2 review, 2-3 stale, 3+ discard). */}
+          <div className="sm:col-span-2">
+            <span className="t-label mb-1 block">Cost age</span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <button
+                type="button"
+                className="border-line hover:bg-surface-2 rounded border px-2 py-1 disabled:opacity-50"
+                disabled={disabled || freshBusy}
+                onClick={() => void recheckFreshness()}
+              >
+                {freshBusy ? 'Checking…' : 'Re-check cost age'}
+              </button>
+              {freshness ? (
+                <span className={freshness.usable ? 'text-ink-muted' : 'text-alert'}>
+                  {freshness.costDate ? `${freshness.costDate} · ` : ''}
+                  <span className="font-medium">{freshness.status}</span>
+                  {' — '}
+                  {freshness.guidance}
+                </span>
+              ) : (
+                <span className="text-ink-muted italic">
+                  Reads the date out of the cost basis and asks the engine.
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -482,23 +550,41 @@ export function ReviewWorkspace({
     }
   };
 
-  const addLine = async () => {
+  /**
+   * `rfq` exists because the shelf genuinely does not carry toilet partitions (10 21 13),
+   * lockers (10 51 00) or extinguisher cabinets (10 44 00), while requirements Open Item 7
+   * puts them squarely in CBC's scope. Those lines used to reach the estimator as a gap
+   * tag with nowhere to put the outside quote when it came back.
+   *
+   * The defaults matter: cost_source `not_carried` is what the engine's audit recognises
+   * for a line that carries no money and says why, and it must stay at 0.00 until a real
+   * quote replaces it. Pre-filling `manual_wholesaler_net` would claim a sourcing path
+   * that was never taken.
+   */
+  const addLine = async (kind: 'blank' | 'rfq' = 'blank') => {
     setAddBusy(true);
     try {
       const response = await fetch(`/api/runs/${runId}/quote/lines`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          section,
-          description: 'New line',
-          qty: 1,
-          unit_sale: 0,
-        }),
+        body: JSON.stringify(
+          kind === 'rfq'
+            ? {
+                section,
+                description: 'Outside RFQ - not carried on this shelf',
+                qty: 1,
+                unit_sale: 0,
+                cost_basis: 'not_carried',
+                citations: '[not carried on shelf - outside RFQ required]',
+                pricing_status: 'awaiting_vendor_rfq',
+              }
+            : { section, description: 'New line', qty: 1, unit_sale: 0 },
+        ),
       });
       const body = (await response.json()) as { line?: QuoteLineRow; error?: string };
       if (!response.ok || !body.line) throw new Error(body.error || 'Add failed');
       setLines((prev) => [...prev, body.line!]);
-      toast.success('Line added');
+      toast.success(kind === 'rfq' ? 'RFQ line added' : 'Line added');
     } catch (err) {
       toast.error('Could not add line', {
         description: err instanceof Error ? err.message : String(err),
@@ -520,7 +606,7 @@ export function ReviewWorkspace({
       if (!response.ok) throw new Error(body.error || 'Approve failed');
       if (body.draft) setDraft(body.draft);
       toast.success('Draft approved', {
-        description: 'Workbook regenerated. Download when ready.',
+        description: 'Workbook and PDF regenerated from the accepted lines.',
         action: body.downloadUrl
           ? {
               label: 'Download',
@@ -560,6 +646,7 @@ export function ReviewWorkspace({
       if (filter === 'pending' && line.acceptance !== 'pending') return false;
       if (filter === 'low' && line.confidence !== 'LOW') return false;
       if (filter === 'manual' && line.pricing_status === 'priced') return false;
+      if (filter === 'rfq' && line.pricing_status !== 'awaiting_vendor_rfq') return false;
       return true;
     });
   }, [lines, section, filter]);
@@ -625,6 +712,17 @@ export function ReviewWorkspace({
             >
               Download .xlsx
             </a>
+            {/* FR-10: the customer-facing format. Only exists once approved, so it is
+                offered only then rather than linking to a 404. */}
+            {approved ? (
+              <a
+                href={`/api/runs/${runId}/download?format=pdf`}
+                download
+                className="border-rule hover:bg-sunken rounded-md border px-3 py-1.5 text-[12px] font-medium no-underline"
+              >
+                Download .pdf
+              </a>
+            ) : null}
             <button
               type="button"
               disabled={!canApprove || approving}
@@ -644,7 +742,7 @@ export function ReviewWorkspace({
 
       <p className="text-ink-muted max-w-prose pb-4 text-[13px] leading-relaxed">
         Accept, edit, or reject every line. Nothing is sent externally — approve regenerates the
-        CBC workbook for download.
+        CBC workbook and the customer-facing PDF from the accepted lines.
       </p>
 
       {!approved && stats.pending > 0 ? (
@@ -712,6 +810,7 @@ export function ReviewWorkspace({
               ['pending', 'Pending'],
               ['low', 'Low confidence'],
               ['manual', 'Manual / RFQ'],
+              ['rfq', 'Awaiting RFQ'],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -729,10 +828,19 @@ export function ReviewWorkspace({
           <button
             type="button"
             disabled={approved || addBusy}
-            onClick={() => void addLine()}
+            onClick={() => void addLine('blank')}
             className="border-rule hover:bg-sunken ml-auto rounded-md border px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
           >
             {addBusy ? 'Adding…' : 'Add line'}
+          </button>
+          <button
+            type="button"
+            disabled={approved || addBusy}
+            onClick={() => void addLine('rfq')}
+            title="Partitions, lockers and extinguisher cabinets are not on this shelf. This starts a line shaped for the outside quote."
+            className="border-rule hover:bg-sunken rounded-md border px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
+          >
+            Add RFQ line
           </button>
         </div>
 
